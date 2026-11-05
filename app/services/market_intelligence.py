@@ -56,7 +56,7 @@ async def run_market_intelligence(
         return AgentResult(
             agent_name="Market Intelligence Agent", status=AgentStatus.FAILED,
             conclusion="No valid numeric benchmark observations were supplied.",
-            findings={"source": envelope.source},
+            findings={},
             errors=["Benchmark payload contains no finite numeric values"],
             is_mock=envelope.is_mock,
         )
