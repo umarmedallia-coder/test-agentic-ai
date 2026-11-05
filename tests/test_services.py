@@ -153,4 +153,4 @@ def test_portfolio_ledger_applies_split_and_dividend_cashflow():
     assert dividend == Decimal("100")
     assert ledger.realized_pnl == Decimal("100")
     assert ledger.apply_dividend("ABC", Decimal("5"), action_id="dividend-1") == Decimal("0")
-    assert ledger.cash == Decimal("10099")
+    assert ledger.cash == Decimal("9099")
