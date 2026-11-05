@@ -435,6 +435,9 @@ class TradingEngine:
                         self.provider, symbol, datetime.now(ZoneInfo("Asia/Kolkata")).date(),
                     )
                 )
+                blocked = blocked or self._apply_due_corporate_actions(
+                    action_agent, symbol, trading_date,
+                )
                 self.agents = [action_agent]
                 if blocked:
                     self.journal.append({
