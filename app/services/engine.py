@@ -12,7 +12,9 @@ from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
-from app.services.learning import evaluate_outcomes
+from app.services.learning import (
+    PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
+)
 from app.services.risk import RiskManager
 from app.services.portfolio import PortfolioLedger
 from app.services.technical import analyze_technical
@@ -50,6 +52,9 @@ class TradingEngine:
         self.daily_start_equity = settings.initial_capital_inr
         self.fees_paid = 0.0
         self.outcomes: list[TradeOutcome] = []
+        self.policy_registry = PaperPolicyRegistry(
+            PaperPolicy(version="paper-baseline-v1"),
+        )
         self.equity_peak = settings.initial_capital_inr
         self._processed_intents: set[str] = set()
         self.agents: list[AgentResult] = []
@@ -111,6 +116,10 @@ class TradingEngine:
         self.outcomes = [
             TradeOutcome.model_validate(item) for item in snapshot.get("outcomes", [])
         ]
+        if snapshot.get("policy_history"):
+            self.policy_registry = PaperPolicyRegistry.from_snapshot(
+                snapshot["policy_history"],
+            )
         self.equity_peak = float(snapshot.get("equity_peak", self.settings.initial_capital_inr))
         self._processed_intents = set(snapshot.get("processed_intents", []))
 
@@ -127,6 +136,7 @@ class TradingEngine:
             "daily_start_equity": self.daily_start_equity,
             "fees_paid": self.fees_paid,
             "outcomes": [outcome.model_dump(mode="json") for outcome in self.outcomes],
+            "policy_history": self.policy_registry.snapshot(),
             "equity_peak": self.equity_peak,
             "processed_intents": sorted(self._processed_intents),
             "at": datetime.now(timezone.utc).isoformat(),
@@ -436,6 +446,8 @@ class TradingEngine:
                     technical_intent.strategy = "combined"
                     intent = technical_intent
 
+            if intent is not None:
+                intent.policy_version = self.policy_registry.active.version
             if intent is not None and not self.paused and not market_open:
                 self.journal.append({
                     "type": "entry_rejected", "reason": "market calendar is closed or unavailable",
@@ -543,7 +555,9 @@ class TradingEngine:
             self.state = "stopped"
 
     def learning_report(self):
-        return evaluate_outcomes(self.outcomes, policy_version="paper-baseline-v1")
+        return evaluate_outcomes(
+            self.outcomes, policy_version=self.policy_registry.active.version,
+        )
 
     def snapshot(self) -> dict:
         return {
@@ -551,6 +565,7 @@ class TradingEngine:
             "cash": self.cash, "equity": self.equity, "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl": self.realized_pnl, "daily_pnl": self.daily_pnl,
             "outcome_count": len(self.outcomes),
+            "active_policy": self.policy_registry.active.model_dump(mode="json"),
             "fees_paid": self.fees_paid,
             "positions": self.positions, "outcomes": self.outcomes,
             "agents": self.agents, "errors": self.errors,
