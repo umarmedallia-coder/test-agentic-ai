@@ -113,9 +113,16 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
         "RELIANCE", {"low": 94, "high": 111},
     )
     assert engine.positions == []
+    assert len(engine.outcomes) == 1
     events = engine.journal.read_all()
     snapshots = [event for event in events if event["type"] == "portfolio_snapshot"]
     assert snapshots[-1]["positions"] == []
     closed = [event for event in events if event["type"] == "position_closed"]
     assert closed[-1]["reason"] == "stop_loss"
     engine.stop()
+
+    recovered = TradingEngine(Settings(journal_dir=tmp_path))
+    recovered.start()
+    assert len(recovered.outcomes) == 1
+    assert recovered.learning_report().sample_count == 1
+    recovered.stop()
