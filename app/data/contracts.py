@@ -33,7 +33,7 @@ class MarketDataProvider(Protocol):
     async def get_market_indices(self) -> DataEnvelope[dict[str, float]]: ...
 
     async def get_trading_calendar(
-        self, day: date
+        self, day: date, exchange: str = "NSE"
     ) -> DataEnvelope[dict[str, bool]]: ...
 
     async def get_stock_universe(
