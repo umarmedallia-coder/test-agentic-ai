@@ -198,15 +198,21 @@ class TradingEngine:
             )
             fill = self.broker.execute(exit_signal, position.quantity, Decimal(str(trigger_price)))
             proceeds = float(fill.price) * fill.quantity - float(fill.fees)
-            gross = (float(fill.price) - position.entry_price) * fill.quantity
-            total_fees = position.entry_fees + float(fill.fees)
-            net = gross - total_fees
+            entry_price = Decimal(str(position.entry_price))
+            gross_decimal = (fill.price - entry_price) * fill.quantity
+            total_fees_decimal = Decimal(str(position.entry_fees)) + fill.fees
+            net_decimal = gross_decimal - total_fees_decimal
+            gross = float(gross_decimal)
+            total_fees = float(total_fees_decimal)
+            net = float(net_decimal)
             outcome = TradeOutcome(
                 fill_id=position.entry_fill_id or position.intent_id,
-                symbol=position.symbol, entry_price=Decimal(str(position.entry_price)),
+                entry_fill_id=position.entry_fill_id,
+                exit_fill_id=fill.fill_id,
+                symbol=position.symbol, entry_price=entry_price,
                 exit_price=fill.price, quantity=fill.quantity,
-                gross_pnl=Decimal(str(gross)), fees=Decimal(str(total_fees)),
-                net_pnl=Decimal(str(net)), reason=reason, closed_at=fill.filled_at,
+                gross_pnl=gross_decimal, fees=total_fees_decimal,
+                net_pnl=net_decimal, reason=reason, closed_at=fill.filled_at,
             )
             self.cash += proceeds
             self.realized_pnl += net
