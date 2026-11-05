@@ -479,3 +479,59 @@ def test_engine_rejects_over_age_typed_history_even_when_provider_marks_ok(tmp_p
     assert engine.agents[0].status == AgentStatus.FAILED
     assert "freshness_seconds=900000" in engine.agents[0].errors[0]
     engine.stop()
+
+
+def test_risk_manager_enforces_single_symbol_concentration_cap(tmp_path):
+    settings = Settings(
+        journal_dir=tmp_path, initial_capital_inr=100_000,
+        max_single_position_exposure_pct=0.25,
+    )
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=10,
+    )
+    decision = RiskManager(settings).validate(
+        intent, 100_000, 0, 1, 100_000,
+        current_exposure=24_500, current_symbol_exposure=24_500,
+        average_volume=100_000,
+    )
+    assert not decision.accepted
+    assert "Single-symbol concentration limit would be exceeded" in decision.reasons
+
+
+def test_portfolio_intelligence_reports_concentration_and_missing_marks():
+    from app.services.portfolio_intelligence import analyze_portfolio
+
+    position = Position(
+        intent_id="intent-1", symbol="ABC", exchange="NSE", direction="long",
+        quantity=300, entry_price=100, stop_price=90, target_price=120,
+        policy_version="paper-v1",
+    )
+    result = analyze_portfolio(
+        [position], {"ABC": 100}, 100_000, 70_000,
+        max_single_position_exposure_pct=0.25,
+    )
+    assert result.agent_name == "Portfolio Intelligence Agent"
+    assert result.status == AgentStatus.FAILED
+    assert result.findings["symbol_concentration_pct"]["ABC"] == 0.3
+    assert "ABC" in result.findings["concentration_breaches"]
+
+    missing = analyze_portfolio(
+        [position], {}, 100_000, 70_000,
+        max_single_position_exposure_pct=0.25,
+    )
+    assert missing.status == AgentStatus.FAILED
+    assert missing.findings["unmarked_symbols"] == ["ABC"]
+
+
+def test_engine_exposes_portfolio_intelligence_agent_each_cycle(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    engine.run_cycle()
+    agent = next(
+        item for item in engine.agents
+        if item.agent_name == "Portfolio Intelligence Agent"
+    )
+    assert agent.status in {AgentStatus.SUCCEEDED, AgentStatus.FAILED}
+    assert "gross_exposure_pct" in agent.findings
+    engine.stop()
