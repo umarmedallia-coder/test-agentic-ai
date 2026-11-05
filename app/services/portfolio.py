@@ -31,6 +31,7 @@ class PortfolioLedger:
         self.realized_pnl = Decimal("0")
         self.positions: dict[str, OpenPosition] = {}
         self._applied_fills: set[str] = set()
+        self._applied_actions: set[str] = set()
 
     def apply_buy(self, fill: PaperFill) -> None:
         if fill.fill_id in self._applied_fills:
@@ -50,12 +51,18 @@ class PortfolioLedger:
         self._applied_fills.add(fill.fill_id)
 
     def apply_split(
-        self, symbol: str, ratio_from: Decimal, ratio_to: Decimal,
+        self, symbol: str, ratio_from: Decimal, ratio_to: Decimal, action_id: str,
     ) -> tuple[int, Decimal] | None:
+        if not action_id.strip():
+            raise ValueError("action_id is required for idempotent split accounting")
+        if action_id in self._applied_actions:
+            position = self.positions.get(symbol)
+            return (position.quantity, position.average_entry) if position else None
         if ratio_from <= 0 or ratio_to <= 0:
             raise ValueError("split ratios must be positive")
         position = self.positions.get(symbol)
         if position is None:
+            self._applied_actions.add(action_id)
             return None
         adjusted_quantity = Decimal(position.quantity) * ratio_to / ratio_from
         if adjusted_quantity != adjusted_quantity.to_integral_value():
@@ -65,17 +72,24 @@ class PortfolioLedger:
         position.average_entry *= factor
         if position.mark is not None:
             position.mark *= factor
+        self._applied_actions.add(action_id)
         return position.quantity, position.average_entry
 
-    def apply_dividend(self, symbol: str, cash_per_share: Decimal) -> Decimal:
+    def apply_dividend(self, symbol: str, cash_per_share: Decimal, action_id: str) -> Decimal:
+        if not action_id.strip():
+            raise ValueError("action_id is required for idempotent dividend accounting")
+        if action_id in self._applied_actions:
+            return Decimal("0")
         if cash_per_share < 0:
             raise ValueError("dividend amount cannot be negative")
         position = self.positions.get(symbol)
         if position is None:
+            self._applied_actions.add(action_id)
             return Decimal("0")
         cashflow = Decimal(position.quantity) * cash_per_share
         self.cash += cashflow
         self.realized_pnl += cashflow
+        self._applied_actions.add(action_id)
         return cashflow
 
     def mark(self, symbol: str, price: Decimal) -> None:
