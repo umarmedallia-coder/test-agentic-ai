@@ -8,7 +8,7 @@ from app.services.engine import TradingEngine
 
 st.set_page_config(page_title="NSE/BSE Paper Engine", layout="wide")
 st.title("NSE/BSE Agentic Paper Trading Engine")
-st.caption("PAPER TRADING · MOCK DATA · LIVE ORDERS DISABLED")
+st.caption("PAPER TRADING · LIVE ORDERS DISABLED")
 reduced_motion = st.sidebar.checkbox("Reduce motion", value=False)
 if not reduced_motion:
     st.markdown(
@@ -76,39 +76,58 @@ if page == "Overview":
     @st.fragment(run_every="5s")
     def render_overview() -> None:
         snapshot = engine.snapshot()
-        drawdown = max(0.0, (engine.equity_peak - snapshot["equity"]) / engine.equity_peak)
+        drawdown = (
+            max(0.0, (engine.equity_peak - snapshot["equity"]) / engine.equity_peak)
+            if snapshot["equity"] is not None else None
+        )
         a, b, c, d, e = st.columns(5)
         a.metric("Engine", snapshot["state"])
         b.metric("Cash", f"₹{snapshot['cash']:,.2f}")
-        c.metric("Equity", f"₹{snapshot['equity']:,.2f}")
+        equity_label = f"₹{snapshot['equity']:,.2f}" if snapshot["equity"] is not None else "Unavailable"
+        c.metric("Equity", equity_label)
         d.metric("Realized P&L", f"₹{snapshot['realized_pnl']:,.2f}")
         e.metric("Open positions", len(snapshot["positions"]))
+        data_label = "MOCK" if snapshot["is_mock"] else "REAL"
+        freshness = (
+            f"{snapshot['data_freshness_seconds']}s old"
+            if snapshot["data_freshness_seconds"] is not None else "unknown"
+        )
         st.info(
-            f"Mode: {snapshot['mode']} · Data: MOCK · Scheduler: "
-            f"{snapshot['scheduler_active']} · Last cycle: "
-            f"{snapshot['last_cycle_at'] or 'not run'}"
+            f"Mode: {snapshot['mode']} · Data: {data_label} ({snapshot['data_source'] or 'not loaded'}) · "
+            f"As of: {snapshot['data_as_of'] or 'not available'} · Freshness: {freshness} · "
+            f"Scheduler: {snapshot['scheduler_active']} · Last cycle: "
+            f"{snapshot['last_cycle_at'] or 'not run'} · Next cycle: "
+            f"{snapshot['next_cycle_at'] or 'not scheduled'}"
         )
         unrealized_value = snapshot["unrealized_pnl"]
         unrealized_label = (
             f"₹{unrealized_value:,.2f}" if unrealized_value is not None else "Unavailable"
         )
+        daily_pnl_label = (
+            f"₹{snapshot['daily_pnl']:,.2f}"
+            if snapshot["daily_pnl"] is not None else "Unavailable"
+        )
+        drawdown_label = f"{drawdown:.2%}" if drawdown is not None else "Unavailable"
         st.caption(
             f"Unrealized P&L: {unrealized_label} · "
-            f"Daily P&L: ₹{snapshot['daily_pnl']:,.2f} · "
+            f"Daily P&L: {daily_pnl_label} · "
             f"Fees: ₹{snapshot['fees_paid']:,.2f} · "
-            f"Peak-to-current drawdown: {drawdown:.2%} · "
-            f"Entries paused: {snapshot['paused']}"
+            f"Peak-to-current drawdown: {drawdown_label} · "
+            f"Entries paused: {snapshot['paused']} · "
+            f"Policy: {snapshot['active_policy']['version']}"
         )
         st.subheader("Open paper positions")
         st.dataframe(
-            [position.model_dump(mode="json") for position in snapshot["positions"]],
+            snapshot["open_trades"],
             use_container_width=True,
         )
         st.subheader("Completed paper trades")
-        st.dataframe(
-            [outcome.model_dump(mode="json") for outcome in snapshot["outcomes"]],
-            use_container_width=True,
-        )
+        completed = [outcome.model_dump(mode="json") for outcome in snapshot["outcomes"]]
+        completed_symbols = ["All"] + sorted({row["symbol"] for row in completed})
+        selected_symbol = st.selectbox("Completed-trade symbol", completed_symbols)
+        if selected_symbol != "All":
+            completed = [row for row in completed if row["symbol"] == selected_symbol]
+        st.dataframe(completed, use_container_width=True)
         st.subheader("Learning review")
         report = engine.learning_report()
         st.write(
