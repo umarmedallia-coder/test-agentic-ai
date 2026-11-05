@@ -32,9 +32,18 @@ class AgentOrchestrator:
                 telemetry.status = "running"
                 telemetry.attempts = attempt + 1
                 try:
-                    result = task()
-                    if inspect.isawaitable(result):
-                        result = await asyncio.wait_for(result, timeout=self.timeout_seconds)
+                    if inspect.iscoroutinefunction(task):
+                        result = await asyncio.wait_for(
+                            task(), timeout=self.timeout_seconds,
+                        )
+                    else:
+                        result = await asyncio.wait_for(
+                            asyncio.to_thread(task), timeout=self.timeout_seconds,
+                        )
+                        if inspect.isawaitable(result):
+                            result = await asyncio.wait_for(
+                                result, timeout=self.timeout_seconds,
+                            )
                     telemetry.status = "succeeded"
                     return {"name": name, "status": "succeeded", "result": result}
                 except asyncio.TimeoutError:
