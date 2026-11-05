@@ -1,11 +1,13 @@
 """Bounded deterministic critic for missing evidence and cross-source contradictions."""
+from typing import Any
+
 from app.models import AgentResult, AgentStatus
 
 
 def critique_evidence(results: list[AgentResult], *, max_findings: int = 20) -> AgentResult:
     if max_findings < 1 or max_findings > 100:
         raise ValueError("max_findings must be between 1 and 100")
-    issues = []
+    issues: list[dict[str, Any]] = []
     for result in results:
         if result.status in {AgentStatus.FAILED, AgentStatus.TIMED_OUT, AgentStatus.CANCELLED}:
             issues.append({"agent": result.agent_name, "issue": "source_execution_incomplete"})
