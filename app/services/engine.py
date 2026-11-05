@@ -115,12 +115,17 @@ class TradingEngine:
             # Upgrade legacy snapshots into the canonical Decimal ledger.
             self.ledger = PortfolioLedger(Decimal(str(self.settings.initial_capital_inr)))
             for position in self.positions:
-                self.ledger.apply_buy(PaperFill(
+                restored_fill = PaperFill(
                     fill_id=position.entry_fill_id or position.intent_id,
-                    signal_id=position.intent_id, symbol=position.symbol, side="buy",
+                    signal_id=position.intent_id, symbol=position.symbol,
+                    side="short" if position.direction == "short" else "buy",
                     quantity=position.quantity, price=Decimal(str(position.entry_price)),
                     fees=Decimal(str(position.entry_fees)), filled_at=position.opened_at,
-                ))
+                )
+                if position.direction == "short":
+                    self.ledger.apply_short(restored_fill)
+                else:
+                    self.ledger.apply_buy(restored_fill)
                 self.ledger.mark(
                     position.symbol,
                     Decimal(str(self.marks.get(position.symbol, position.entry_price))),
@@ -341,11 +346,17 @@ class TradingEngine:
         remaining: list[Position] = []
         close_events: list[dict] = []
         for position in self.positions:
-            if position.symbol != symbol or position.direction != "long":
+            if position.symbol != symbol:
                 remaining.append(position)
                 continue
-            stop_hit = float(bar["low"]) <= position.stop_price
-            target_hit = float(bar["high"]) >= position.target_price
+            if position.direction == "long":
+                stop_hit = float(bar["low"]) <= position.stop_price
+                target_hit = float(bar["high"]) >= position.target_price
+                exit_direction = "short"
+            else:
+                stop_hit = float(bar["high"]) >= position.stop_price
+                target_hit = float(bar["low"]) <= position.target_price
+                exit_direction = "long"
             if not stop_hit and not target_hit:
                 remaining.append(position)
                 continue
@@ -355,17 +366,20 @@ class TradingEngine:
             exit_signal = Signal(
                 signal_id=f"exit-{position.intent_id}-{uuid4()}",
                 strategy="position_exit", symbol=position.symbol, exchange=position.exchange,
-                direction="short", entry=Decimal(str(trigger_price)),
-                stop=Decimal(str(trigger_price * 1.01)),
-                target=Decimal(str(trigger_price * 0.99)), confidence=1,
-                rationale=reason,
+                direction=exit_direction, entry=Decimal(str(trigger_price)),
+                stop=Decimal(str(trigger_price * (1.01 if exit_direction == "short" else 0.99))),
+                target=Decimal(str(trigger_price * (0.99 if exit_direction == "short" else 1.01))),
+                confidence=1, rationale=reason,
             )
             fill = self.broker.execute(exit_signal, position.quantity, Decimal(str(trigger_price)))
             entry_price = Decimal(str(position.entry_price))
-            gross_decimal = (fill.price - entry_price) * fill.quantity
+            gross_decimal = (
+                (fill.price - entry_price) * fill.quantity
+                if position.direction == "long"
+                else (entry_price - fill.price) * fill.quantity
+            )
             total_fees_decimal = Decimal(str(position.entry_fees)) + fill.fees
             net_decimal = gross_decimal - total_fees_decimal
-            net = float(net_decimal)
             outcome = TradeOutcome(
                 fill_id=position.entry_fill_id or position.intent_id,
                 entry_fill_id=position.entry_fill_id,
@@ -377,7 +391,11 @@ class TradingEngine:
                 policy_version=position.policy_version, strategy=position.strategy,
                 sector=position.sector, entry_at=position.opened_at, closed_at=fill.filled_at,
             )
-            ledger_net = self.ledger.apply_sell(fill)
+            ledger_net = (
+                self.ledger.apply_sell(fill)
+                if position.direction == "long"
+                else self.ledger.apply_cover(fill)
+            )
             self.realized_pnl = float(self.ledger.realized_pnl)
             self.daily_realized_pnl += float(ledger_net)
             self.fees_paid += float(fill.fees)
@@ -386,11 +404,11 @@ class TradingEngine:
                 "type": "position_closed", "intent_id": position.intent_id,
                 "exit_fill": fill.model_dump(mode="json"),
                 "outcome": outcome.model_dump(mode="json"),
-                "reason": reason, "net_pnl": net, "at": fill.filled_at.isoformat(),
+                "reason": reason, "net_pnl": float(net_decimal),
+                "at": fill.filled_at.isoformat(),
             })
         self.positions = remaining
         if close_events:
-            # Persist the resulting portfolio before appending descriptive close events.
             self._persist()
             for event in close_events:
                 self.journal.append(event)
@@ -857,12 +875,7 @@ class TradingEngine:
                     "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
                 })
             elif intent is not None and not self.paused:
-                if intent.direction != "long":
-                    self.journal.append({
-                        "type": "entry_rejected", "reason": "short paper execution is not enabled",
-                        "symbol": symbol, "intent_id": intent.id,
-                    })
-                elif any(position.symbol == symbol for position in self.positions):
+                if any(position.symbol == symbol for position in self.positions):
                     self.journal.append({
                         "type": "entry_rejected", "reason": "position already open",
                         "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
@@ -928,7 +941,7 @@ class TradingEngine:
                                 intent, current_equity, current_daily_pnl,
                                 len(self.positions), self.cash,
                                 equity_peak=self.equity_peak,
-                                current_exposure=current_equity - self.cash,
+                                current_exposure=sum(\n                                    self.marks[position.symbol] * position.quantity\n                                    for position in self.positions if position.symbol in self.marks\n                                ),
                                 current_symbol_exposure=current_symbol_exposure,
                                 candidate_sector=candidate_sector,
                                 current_sector_exposure=current_sector_exposure,
@@ -985,18 +998,21 @@ class TradingEngine:
                             signal, decision.approved_quantity, Decimal(str(intent.entry_price))
                         )
                         total_cost = float(fill.price) * fill.quantity + float(fill.fees)
-                        if total_cost > self.cash:
+                        if intent.direction == "long" and total_cost > self.cash:
                             self.journal.append({
                                 "type": "entry_rejected", "reason": "execution cost exceeds available cash",
                                 "intent_id": intent.id,
                             })
                         else:
-                            self.ledger.apply_buy(fill)
+                            if intent.direction == "short":
+                                self.ledger.apply_short(fill)
+                            else:
+                                self.ledger.apply_buy(fill)
                             self.ledger.mark(symbol, Decimal(str(last_price)))
                             self.fees_paid += float(fill.fees)
                             self.positions.append(Position(
                                 intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
-                                direction="long", quantity=fill.quantity, entry_price=float(fill.price),
+                                direction=intent.direction, quantity=fill.quantity, entry_price=float(fill.price),
                                 stop_price=intent.stop_price, target_price=intent.target_price,
                                 policy_version=intent.policy_version, strategy=intent.strategy,
                                 sector=candidate_sector, entry_fees=float(fill.fees),
@@ -1145,8 +1161,11 @@ class TradingEngine:
         for position in self.positions:
             mark = self.marks.get(position.symbol)
             unrealized = (
-                (mark - position.entry_price) * position.quantity
-                if mark is not None and position.direction == "long" else None
+                (
+                    (mark - position.entry_price) if position.direction == "long"
+                    else (position.entry_price - mark)
+                ) * position.quantity
+                if mark is not None else None
             )
             open_trades.append({
                 **position.model_dump(mode="json"),
