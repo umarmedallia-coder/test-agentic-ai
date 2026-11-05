@@ -128,7 +128,7 @@ else:
     st.subheader("Agent Activity")
     st.caption("Statuses are derived from actual engine results. No fabricated progress is shown.")
     roster = [
-        ("Market Intelligence Agent", "Optional market-regime context"),
+        ("Market Intelligence Agent", "Benchmark-based risk-on, risk-off or mixed context"),
         ("Technical Analysis Agent", "Deterministic price and volume indicators"),
         ("Fundamental Analysis Agent", "On-demand financial statement analysis"),
         ("News Intelligence Agent", "News deduplication, facts and event impact"),
@@ -137,7 +137,7 @@ else:
         ("Risk Management Agent", "Deterministic account-wide risk gate"),
         ("Stock Discovery Agent", "On-demand candidate discovery"),
         ("Strategy Agent", "Versioned strategy and horizon policy"),
-        ("Portfolio Intelligence Agent", "Portfolio concentration and exposure review"),
+        ("Portfolio Intelligence Agent", "Marked exposure, cash allocation and concentration review"),
         ("Debate/Critic Agent", "Configured contradiction and evidence review"),
         ("Recommendation Synthesis Agent", "Evidence-backed decision synthesis"),
         ("News-to-Stock Impact Mapping Agent", "Direct and evidenced indirect exposure mapping"),
