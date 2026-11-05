@@ -8,6 +8,9 @@ from app.services.learning import (
     PaperPolicy,
     PaperPolicyRegistry,
     evaluate_candidate,
+    chronological_split,
+    evaluate_chronological,
+    validate_strategy_parameter_proposal,
 )
 
 
@@ -71,3 +74,35 @@ def test_policy_registry_rejects_hard_risk_limit_changes():
         PaperPolicy(
             version="unsafe", parameters={"max_daily_loss_pct": 0.5},
         )
+
+
+def test_chronological_split_and_out_of_sample_evaluation():
+    outcomes = make_outcomes("paper", 0, 40, Decimal("5"))
+    train, test = chronological_split(outcomes)
+    assert len(train) == 28
+    assert len(test) == 12
+    assert train[-1].closed_at < test[0].closed_at
+    evaluation = evaluate_chronological(
+        outcomes, policy_version="paper-v1",
+    )
+    assert evaluation.passed
+    assert evaluation.train.sample_count == 28
+    assert evaluation.test.sample_count == 12
+
+
+def test_strategy_parameter_proposals_are_bounded_and_risk_limits_are_immutable():
+    current = {
+        "ema_fast": 9, "ema_slow": 21, "rsi_lower": 30,
+        "rsi_upper": 70, "atr_stop_multiple": 2, "reward_risk": 2,
+    }
+    proposed = validate_strategy_parameter_proposal(
+        current, {"ema_fast": 10, "atr_stop_multiple": 2.2},
+    )
+    assert proposed["ema_fast"] == 10
+    assert proposed["atr_stop_multiple"] == 2.2
+    with pytest.raises(ValueError, match="risk-related"):
+        validate_strategy_parameter_proposal(
+            current, {"max_risk_per_trade_pct": 0.02},
+        )
+    with pytest.raises(ValueError, match="bounded change"):
+        validate_strategy_parameter_proposal(current, {"ema_fast": 20})
