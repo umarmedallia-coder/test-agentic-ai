@@ -959,7 +959,7 @@ class TradingEngine:
                             )
                             decision = self.risk.validate(
                                 intent, current_equity, current_daily_pnl,
-                                len(self.positions), self.cash,
+                                len(self.positions), float(self.ledger.available_cash),
                                 equity_peak=self.equity_peak,
                                 current_exposure=sum(
                                     self.marks[position.symbol] * position.quantity
@@ -1021,7 +1021,7 @@ class TradingEngine:
                             signal, decision.approved_quantity, Decimal(str(intent.entry_price))
                         )
                         total_cost = float(fill.price) * fill.quantity + float(fill.fees)
-                        if intent.direction == "long" and total_cost > self.cash:
+                        if intent.direction == "long" and total_cost > float(self.ledger.available_cash):
                             self.journal.append({
                                 "type": "entry_rejected", "reason": "execution cost exceeds available cash",
                                 "intent_id": intent.id,
