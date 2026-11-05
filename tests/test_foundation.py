@@ -65,7 +65,7 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     )
     first = TradingEngine(settings)
 
-    async def market_open(day):
+    async def market_open(day, exchange="NSE"):
         return DataEnvelope(
             source="test", as_of=datetime.now(UTC), payload={"is_open": True},
         )
@@ -178,7 +178,7 @@ def test_closed_market_calendar_blocks_new_entries(tmp_path, monkeypatch):
     )
     engine = TradingEngine(Settings(journal_dir=tmp_path))
 
-    async def market_closed(day):
+    async def market_closed(day, exchange="NSE"):
         return DataEnvelope(
             source="test", as_of=datetime.now(UTC), payload={"is_open": False},
         )
@@ -210,7 +210,7 @@ def test_corporate_action_restriction_blocks_technical_entry(tmp_path, monkeypat
     )
     engine = TradingEngine(Settings(journal_dir=tmp_path))
 
-    async def market_open(day):
+    async def market_open(day, exchange="NSE"):
         return DataEnvelope(
             source="test", as_of=datetime.now(UTC), payload={"is_open": True},
         )
@@ -258,7 +258,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     )
 
     class CombinedProvider(MockMarketDataProvider):
-        async def get_trading_calendar(self, day):
+        async def get_trading_calendar(self, day, exchange="NSE"):
             return DataEnvelope(
                 source="test", as_of=now, payload={"is_open": True},
             )
