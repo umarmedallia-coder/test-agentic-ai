@@ -15,6 +15,7 @@ from app.services.journal import JsonlJournal
 from app.services.learning import evaluate_outcomes
 from app.services.risk import RiskManager
 from app.services.technical import analyze_technical
+from app.services.workflow import build_strategy_graph
 from app.services.strategy_pipelines import (
     run_corporate_actions_pipeline,
     run_news_pipeline,
@@ -292,25 +293,56 @@ class TradingEngine:
                     technical_agent,
                     AgentResult(
                         agent_name="News Intelligence Agent", status=AgentStatus.RUNNING,
-                        symbol=symbol, exchange=exchange, conclusion="Retrieving and scoring source news.",
+                        symbol=symbol, exchange=exchange, conclusion="Running in parallel with event checks.",
                     ),
                     AgentResult(
-                        agent_name="Corporate Actions Agent", status=AgentStatus.WAITING,
-                        symbol=symbol, exchange=exchange, conclusion="Waiting for news pipeline.",
+                        agent_name="Corporate Actions Agent", status=AgentStatus.RUNNING,
+                        symbol=symbol, exchange=exchange, conclusion="Running in parallel with news analysis.",
                     ),
                 ]
-                news_agent, news_intent = asyncio.run(
-                    run_news_pipeline(self.provider, symbol, last_price, atr)
-                )
-                self.agents = [technical_agent, news_agent, AgentResult(
-                    agent_name="Corporate Actions Agent", status=AgentStatus.RUNNING,
-                    symbol=symbol, exchange=exchange, conclusion="Checking verified event records.",
-                )]
-                action_agent, action_blocked = asyncio.run(
-                    run_corporate_actions_pipeline(
-                        self.provider, symbol, date.today(),
+
+                async def execute_independent_strategies():
+                    graph = build_strategy_graph()
+                    return await graph.ainvoke({
+                        "strategies": ["news", "corporate_actions"],
+                        "tasks": {
+                            "news": lambda: run_news_pipeline(
+                                self.provider, symbol, last_price, atr,
+                            ),
+                            "corporate_actions": lambda: run_corporate_actions_pipeline(
+                                self.provider, symbol,
+                                datetime.now(ZoneInfo("Asia/Kolkata")).date(),
+                            ),
+                        },
+                        "results": [],
+                    })
+
+                graph_result = asyncio.run(execute_independent_strategies())
+                results_by_name = {
+                    item["name"]: item for item in graph_result.get("results", [])
+                }
+                news_task = results_by_name.get("news", {})
+                action_task = results_by_name.get("corporate_actions", {})
+                if news_task.get("status") == "succeeded":
+                    news_agent, news_intent = news_task["result"]
+                else:
+                    news_intent = None
+                    news_agent = AgentResult(
+                        agent_name="News Intelligence Agent", status=AgentStatus.FAILED,
+                        symbol=symbol, exchange=exchange,
+                        conclusion="News strategy task failed; combined entry blocked.",
+                        errors=[news_task.get("error", "No result returned")],
                     )
-                )
+                if action_task.get("status") == "succeeded":
+                    action_agent, action_blocked = action_task["result"]
+                else:
+                    action_blocked = True
+                    action_agent = AgentResult(
+                        agent_name="Corporate Actions Agent", status=AgentStatus.FAILED,
+                        symbol=symbol, exchange=exchange,
+                        conclusion="Corporate-action task failed; combined entry blocked.",
+                        errors=[action_task.get("error", "No result returned")],
+                    )
                 self.agents = [technical_agent, news_agent, action_agent]
                 # Combined mode requires all independent evidence pipelines to succeed.
                 if (
