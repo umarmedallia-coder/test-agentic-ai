@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.config import Settings
-from app.contracts import DataEnvelope
+from app.contracts import CorporateActionRecord, DataEnvelope
 from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.journal import JournalError, JsonlJournal
@@ -164,6 +164,47 @@ def test_closed_market_calendar_blocks_new_entries(tmp_path, monkeypatch):
     assert engine.positions == []
     assert any(
         event.get("reason") == "market calendar is closed or unavailable"
+        for event in engine.journal.read_all()
+    )
+    engine.stop()
+
+
+def test_corporate_action_restriction_blocks_technical_entry(tmp_path, monkeypatch):
+    intent = TradeIntent(
+        symbol="RELIANCE", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    agent = AgentResult(
+        agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
+        symbol="RELIANCE", conclusion="test signal",
+    )
+    monkeypatch.setattr(
+        "app.services.engine.analyze_technical",
+        lambda symbol, exchange, bars: (agent, intent),
+    )
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+
+    async def market_open(day):
+        return DataEnvelope(
+            source="test", as_of=datetime.now(UTC), payload={"is_open": True},
+        )
+
+    async def action_feed(symbol):
+        now = datetime.now(UTC)
+        action = CorporateActionRecord(
+            action_id="action-1", symbol=symbol, action_type="dividend",
+            announcement_date=now, ex_date=now, source="exchange",
+            verified=True, cash_amount=Decimal("2"),
+        )
+        return DataEnvelope(source="test", as_of=now, payload=[action])
+
+    monkeypatch.setattr(engine.provider, "get_trading_calendar", market_open)
+    monkeypatch.setattr(engine.provider, "get_corporate_actions", action_feed)
+    engine.start()
+    engine.run_cycle()
+    assert engine.positions == []
+    assert any(
+        event.get("reason") == "corporate_action"
         for event in engine.journal.read_all()
     )
     engine.stop()
