@@ -109,3 +109,9 @@ class Position(StrictModel):
     opened_at: datetime = Field(default_factory=utc_now)
     entry_fees: float = Field(default=0, ge=0)
     entry_fill_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_direction(self) -> "Position":
+        if self.direction not in {"long", "short"}:
+            raise ValueError("position direction must be long or short")
+        return self
