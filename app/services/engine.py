@@ -971,6 +971,12 @@ class TradingEngine:
                             "type": "entry_rejected", "reason": "recommendation synthesis rejected candidate",
                             "intent_id": intent.id,
                         })
+            if not any(item.agent_name == "Risk Management Agent" for item in self.agents):
+                self.agents.append(AgentResult(
+                    agent_name="Risk Management Agent", status=AgentStatus.SKIPPED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="No candidate reached central risk validation in this cycle.",
+                ))
             try:
                 current_equity = self.equity
                 portfolio_agent = analyze_portfolio(
