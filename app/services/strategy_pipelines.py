@@ -36,7 +36,14 @@ async def run_news_pipeline(
             errors=[feed.error or feed.status.value],
         ), None
 
-    profile = await provider.get_company_profile(symbol)
+    try:
+        profile = await provider.get_company_profile(symbol)
+    except Exception as exc:
+        return AgentResult(
+            agent_name="News Intelligence Agent", status=AgentStatus.FAILED,
+            symbol=symbol, conclusion="Company identity could not be verified.",
+            errors=[f"{type(exc).__name__}: {exc}"],
+        ), None
     aliases = {profile.payload.company_name: symbol}
     items = [
         NewsItem(
@@ -108,7 +115,14 @@ async def run_corporate_actions_pipeline(
     blocked = False
     event_summaries = []
     for record in feed.payload:
-        action = _to_action(record)
+        try:
+            action = _to_action(record)
+        except Exception as exc:
+            return AgentResult(
+                agent_name="Corporate Actions Agent", status=AgentStatus.FAILED,
+                symbol=symbol, conclusion="An invalid corporate-action record blocks new entries.",
+                errors=[f"{type(exc).__name__}: {exc}"],
+            ), True
         action_blocked = not action.verified or blocks_new_entry(action, trading_day)
         blocked = blocked or action_blocked
         event_summaries.append({
