@@ -32,7 +32,13 @@ class PaperBroker:
             adverse = Decimal("1") - self.config.slippage_bps/Decimal("10000")
         price = (reference_price*adverse).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
         notional = price*quantity
-        fill = PaperFill(signal_id=key,symbol=signal.symbol,side=signal.direction,
+        direction = signal.direction.lower()
+        fill_side = (
+            "buy" if direction in {"long", "buy"}
+            else "short" if direction in {"short", "sell"}
+            else direction
+        )
+        fill = PaperFill(signal_id=key,symbol=signal.symbol,side=fill_side,
             quantity=quantity,price=price,fees=(notional*self.config.fee_rate).quantize(Decimal("0.01")),
             slippage=abs(price-reference_price)*quantity)
         self._fills[key] = fill
