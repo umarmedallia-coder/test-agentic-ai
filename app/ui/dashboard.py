@@ -75,10 +75,16 @@ if page == "Overview":
     if discover_col.button("Discover universe", disabled=engine.state != "running"):
         try:
             result = engine.run_stock_discovery()
-            st.success(
+            message = (
                 f"Scanned {result.findings.get('scanned_count', 0)} symbols; "
                 f"{result.findings.get('eligible_count', 0)} candidates passed filters."
             )
+            if result.status == AgentStatus.SUCCEEDED:
+                st.success(message)
+            elif result.status == AgentStatus.SKIPPED:
+                st.warning(result.conclusion)
+            else:
+                st.error(result.errors or result.conclusion)
         except Exception as exc:
             st.error(f"Discovery failed: {exc}")
 
