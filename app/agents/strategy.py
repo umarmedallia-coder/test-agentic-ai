@@ -89,7 +89,11 @@ def evaluate_strategy(*, mode: str, horizon: str, results: list[AgentResult],
             "required_sources": required, "missing_sources": missing, "incomplete_sources": failed,
             "blocked_sources": blocked, "source_directions": directions, "conflict": conflict,
             "market_regime": market_regime,
-            "market_regime_alignment": "conflict" if regime_conflict else "aligned" if market_regime_valid else "unavailable",
+            "market_regime_alignment": (
+                "not_applicable" if mode == "corporate_actions" else
+                "conflict" if regime_conflict else
+                "aligned" if market_regime_valid else "unavailable"
+            ),
             "optional_context": optional_context, "optional_context_warnings": optional_warnings,
             "candidate_allowed": accepted, "reason": reason,
             "note": "This policy assessment does not replace price construction or central risk validation."},
