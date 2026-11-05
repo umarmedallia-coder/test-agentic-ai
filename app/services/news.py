@@ -74,3 +74,40 @@ def score_news(item: NewsItem) -> NewsImpact:
     return NewsImpact(fingerprint=fingerprint(item),headline=item.headline,
         symbols=sorted({s.upper() for s in item.symbols}),impact=impact,confidence=confidence,
         rationale="Keyword heuristic only; not sufficient by itself to authorize a trade.",evidence=evidence)
+
+
+def build_news_signal(
+    impact: NewsImpact,
+    reference_price: float,
+    atr: float,
+    *,
+    min_abs_impact: float = 0.65,
+    min_confidence: float = 0.65,
+):
+    """Build price levels only from a supplied validated quote/ATR, never from news text."""
+    from decimal import Decimal
+
+    from app.contracts import Signal
+
+    if not impact.symbols or abs(impact.impact) < min_abs_impact:
+        return None
+    if impact.confidence < min_confidence or reference_price <= 0 or atr <= 0:
+        return None
+    entry = Decimal(str(reference_price))
+    volatility = Decimal(str(atr))
+    if impact.impact > 0:
+        direction = "long"
+        stop = entry - Decimal("1.5") * volatility
+        target = entry + Decimal("2.5") * volatility
+    else:
+        direction = "short"
+        stop = entry + Decimal("1.5") * volatility
+        target = entry - Decimal("2.5") * volatility
+    if stop <= 0 or target <= 0:
+        return None
+    return Signal(
+        strategy="news_impact", symbol=impact.symbols[0], direction=direction,
+        entry=entry, stop=stop, target=target, confidence=impact.confidence,
+        rationale="News impact heuristic gated by independently supplied quote and ATR.",
+        evidence_ids=[impact.evidence.evidence_id],
+    )
