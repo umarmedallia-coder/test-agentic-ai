@@ -505,6 +505,7 @@ class TradingEngine:
                             })
                         else:
                             self.ledger.apply_buy(fill)
+                            self.ledger.mark(symbol, Decimal(str(last_price)))
                             self.fees_paid += float(fill.fees)
                             self.positions.append(Position(
                                 intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
