@@ -42,7 +42,7 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Deterministic mock OHLCV/quote provider plus typed news, announcement, corporate-action, company-profile and relationship contracts; unsupported mock feeds return explicit EMPTY status.
 - Deterministic EMA 9/21, ATR 14, RSI 14 and MACD 12/26/9 technical analysis.
 - Basic shared risk sizing, append-only JSONL journal and exclusive writer lock.
-- News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores and conservative keyword impact heuristic. News signals require separately supplied quote and ATR values.
+- News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores, and evidence-backed one-hop relationship transmission (same/inverse/mixed/unknown). News signals require separately supplied quote and ATR values.
 - Corporate-action schema validation and conservative event-date entry block.
 - Paper fill simulator with fee/slippage configuration and idempotent signal key.
 - Decimal-based portfolio ledger with mark-to-market and duplicate-fill protection.
