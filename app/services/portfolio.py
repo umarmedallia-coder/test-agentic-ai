@@ -84,7 +84,7 @@ class PortfolioLedger:
     def _close(self, fill: PaperFill, expected_direction: str) -> Decimal:
         if fill.fill_id in self._applied_fills:
             return Decimal("0")
-        expected_side = {"long": {"sell", "short"}, "short": {"buy", "cover"}}[expected_direction]
+        expected_side = {"long": {"sell", "short"}, "short": {"buy", "cover", "long"}}[expected_direction]
         if fill.side.lower() not in expected_side:
             raise ValueError(f"{expected_direction} close requires side in {sorted(expected_side)}")
         position = self.positions.get(fill.symbol)
