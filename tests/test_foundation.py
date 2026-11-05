@@ -243,6 +243,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     technical_agent = AgentResult(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol="BEL", conclusion="deterministic technical signal",
+        findings={"atr_14": 2.0},
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
