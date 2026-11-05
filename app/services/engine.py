@@ -649,11 +649,22 @@ class TradingEngine:
             self.marks[symbol] = last_price
             self.ledger.mark(symbol, Decimal(str(last_price)))
             trading_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-            calendar = asyncio.run(self.provider.get_trading_calendar(trading_date))
+            calendar = asyncio.run(self.provider.get_trading_calendar(trading_date, exchange))
             market_open = (
                 calendar.status.value == "ok"
+                and calendar.freshness_seconds <= self.settings.max_market_data_freshness_seconds
                 and bool(calendar.payload.get("is_open", False))
             )
+            if not market_open:
+                self.journal.append({
+                    "type": "market_calendar_closed_or_unavailable",
+                    "symbol": symbol, "exchange": exchange,
+                    "status": calendar.status.value,
+                    "source": calendar.source,
+                    "freshness_seconds": calendar.freshness_seconds,
+                    "warnings": calendar.warnings,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                })
             self._roll_daily_pnl()
             self._close_triggered_positions(symbol, latest)
 
