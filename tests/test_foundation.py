@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.config import Settings
-from app.contracts import CorporateActionRecord, DataEnvelope
+from app.contracts import CorporateActionRecord, DataEnvelope, PaperFill
 from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.journal import JournalError, JsonlJournal
