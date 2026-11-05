@@ -21,12 +21,18 @@ class RiskManager:
         equity_peak: float | None = None,
         current_exposure: float = 0.0,
         current_symbol_exposure: float = 0.0,
+        candidate_sector: str | None = None,
+        current_sector_exposure: float = 0.0,
+        unclassified_exposure: float = 0.0,
         average_volume: int | None = None,
         max_participation_pct: float = 0.01,
         lot_size: int = 1,
     ) -> RiskDecision:
         reasons: list[str] = []
-        numeric_inputs = [equity, daily_pnl, available_cash, current_exposure, current_symbol_exposure]
+        numeric_inputs = [
+            equity, daily_pnl, available_cash, current_exposure, current_symbol_exposure,
+            current_sector_exposure, unclassified_exposure,
+        ]
         if equity_peak is not None:
             numeric_inputs.append(equity_peak)
         if not all(math.isfinite(value) for value in numeric_inputs):
@@ -36,8 +42,15 @@ class RiskManager:
         if equity <= 0:
             reasons.append("Account equity is not positive")
             return RiskDecision(accepted=False, reasons=reasons)
-        if available_cash < 0 or current_exposure < 0 or current_symbol_exposure < 0:
+        if (
+            available_cash < 0 or current_exposure < 0 or current_symbol_exposure < 0
+            or current_sector_exposure < 0 or unclassified_exposure < 0
+        ):
             reasons.append("Available cash and exposure values cannot be negative")
+        if not candidate_sector or not candidate_sector.strip():
+            reasons.append("Verified sector classification is required for sector risk controls")
+        if unclassified_exposure > 0:
+            reasons.append("Open positions contain unclassified sector exposure")
         if open_positions >= self.settings.max_open_positions:
             reasons.append("Maximum open positions reached")
         if daily_pnl <= -(equity * self.settings.max_daily_loss_pct):
@@ -66,6 +79,9 @@ class RiskManager:
         symbol_limit = equity * self.settings.max_single_position_exposure_pct
         if current_symbol_exposure + notional > symbol_limit:
             reasons.append("Single-symbol concentration limit would be exceeded")
+        sector_limit = equity * self.settings.max_sector_exposure_pct
+        if candidate_sector and current_sector_exposure + notional > sector_limit:
+            reasons.append("Sector concentration limit would be exceeded")
         if average_volume is not None:
             if average_volume <= 0:
                 reasons.append("Average traded volume is unavailable")
