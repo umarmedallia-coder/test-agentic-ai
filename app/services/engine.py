@@ -259,18 +259,31 @@ class TradingEngine:
             technical_agent, technical_intent = analyze_technical(symbol, exchange, bars)
             intent = None
             if mode == "technical":
-                self.agents = [technical_agent]
-                intent = technical_intent
+                action_agent, event_blocked = asyncio.run(
+                    run_corporate_actions_pipeline(
+                        self.provider, symbol,
+                        datetime.now(ZoneInfo("Asia/Kolkata")).date(),
+                    )
+                )
+                self.agents = [technical_agent, action_agent]
+                intent = None if event_blocked else technical_intent
             elif mode == "news":
                 atr = float(technical_agent.findings.get("atr_14", 0))
                 self.agents = [technical_agent, AgentResult(
                     agent_name="News Intelligence Agent", status=AgentStatus.RUNNING,
                     symbol=symbol, exchange=exchange, conclusion="Retrieving and scoring source news.",
                 )]
-                news_agent, intent = asyncio.run(
+                news_agent, news_intent = asyncio.run(
                     run_news_pipeline(self.provider, symbol, last_price, atr)
                 )
-                self.agents = [technical_agent, news_agent]
+                action_agent, event_blocked = asyncio.run(
+                    run_corporate_actions_pipeline(
+                        self.provider, symbol,
+                        datetime.now(ZoneInfo("Asia/Kolkata")).date(),
+                    )
+                )
+                self.agents = [technical_agent, news_agent, action_agent]
+                intent = None if event_blocked else news_intent
             elif mode == "corporate_actions":
                 self.agents = [AgentResult(
                     agent_name="Corporate Actions Agent", status=AgentStatus.RUNNING,
