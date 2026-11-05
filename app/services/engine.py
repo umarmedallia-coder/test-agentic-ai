@@ -117,7 +117,7 @@ class TradingEngine:
                 if self._scheduler_stop.is_set():
                     break
                 try:
-                    self.run_cycle(symbol=symbol)
+                    self.run_cycle(symbol=symbol, exchange=self.settings.default_exchange)
                 except Exception as exc:
                     with self._lock:
                         self.errors.append(f"{symbol}: {type(exc).__name__}: {exc}")
