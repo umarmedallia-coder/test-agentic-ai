@@ -884,6 +884,18 @@ class TradingEngine:
             # Missing marks remain unavailable; never render them as zero.
             equity_value = None
             daily_pnl_value = None
+        strategy_totals: dict[str, dict[str, float | int]] = {}
+        for outcome in self.outcomes:
+            strategy_name = outcome.strategy or "unknown"
+            totals = strategy_totals.setdefault(
+                strategy_name, {"trades": 0, "net_pnl": 0.0, "fees": 0.0, "wins": 0},
+            )
+            totals["trades"] = int(totals["trades"]) + 1
+            totals["net_pnl"] = float(totals["net_pnl"]) + float(outcome.net_pnl)
+            totals["fees"] = float(totals["fees"]) + float(outcome.fees)
+            totals["wins"] = int(totals["wins"]) + int(outcome.net_pnl > 0)
+        attributed_net = sum(float(row["net_pnl"]) for row in strategy_totals.values())
+        account_outcome_net = sum(float(item.net_pnl) for item in self.outcomes)
         open_trades = []
         for position in self.positions:
             mark = self.marks.get(position.symbol)
@@ -911,6 +923,12 @@ class TradingEngine:
             "fees_paid": self.fees_paid,
             "positions": self.positions, "open_trades": open_trades,
             "outcomes": self.outcomes,
+            "strategy_performance": [
+                {"strategy": name, **values}
+                for name, values in sorted(strategy_totals.items())
+            ],
+            "strategy_attribution_net_pnl": attributed_net,
+            "strategy_attribution_reconciles": abs(attributed_net - account_outcome_net) < 0.000001,
             "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "next_cycle_at": self.next_cycle_at,
             "paused": self.paused,
