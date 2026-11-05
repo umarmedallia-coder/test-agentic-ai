@@ -66,3 +66,16 @@ def test_technical_analysis_rejects_unsafe_policy_parameters():
 
     with pytest.raises(ValueError, match="EMA policy"):
         analyze_technical("ABC", "NSE", make_bars(), {"ema_fast": 21, "ema_slow": 9})
+
+
+def test_bearish_technical_signal_creates_a_valid_short_intent():
+    bars = make_bars()
+    for index, bar in enumerate(bars):
+        close = 200 - index * 0.25 + 1.5 * __import__("math").sin(index * 0.7 + 3.0)
+        bar.update({"open": close - 0.05, "high": close + 0.8,
+                    "low": close - 0.8, "close": close})
+    result, intent = analyze_technical("ABC", "NSE", bars)
+    assert result.findings["signal"] == "bearish"
+    assert intent is not None
+    assert intent.direction == "short"
+    assert intent.target_price < intent.entry_price < intent.stop_price
