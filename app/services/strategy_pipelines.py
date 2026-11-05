@@ -151,6 +151,8 @@ async def run_news_pipeline(
         symbol=signal.symbol, exchange=signal.exchange, direction=signal.direction,
         entry_price=float(signal.entry), stop_price=float(signal.stop),
         target_price=float(signal.target), quantity=1, strategy="news_impact",
+        confidence=selected.confidence, evidence_ids=[selected.fingerprint],
+        source_agent="News Intelligence Agent",
     )
     return result, intent
 
