@@ -79,3 +79,32 @@ async def test_strategy_graph_does_not_retry_permanent_errors():
     assert calls == 1
     assert result["results"][0]["attempts"] == 1
     assert "ValueError" in result["results"][0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_strategy_graph_runs_independent_branches_concurrently():
+    active = 0
+    peak = 0
+
+    async def worker(value):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)
+        active -= 1
+        return value
+
+    graph = build_strategy_graph()
+    result = await graph.ainvoke({
+        "strategies": ["technical", "news"],
+        "tasks": {
+            "technical": lambda: worker("technical"),
+            "news": lambda: worker("news"),
+        },
+        "timeout_seconds": 2,
+        "max_retries": 0,
+        "results": [],
+    }, config={"max_concurrency": 2})
+    assert peak == 2
+    assert {item["status"] for item in result["results"]} == {"succeeded"}
+    assert {item["result"] for item in result["results"]} == {"technical", "news"}
