@@ -4,11 +4,11 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Literal
 
 from pydantic import BaseModel, Field
 
-from app.contracts import Evidence
+from app.contracts import Evidence, RelationshipEdge
 
 
 class NewsItem(BaseModel):
@@ -123,4 +123,112 @@ def build_news_signal(
         entry=entry, stop=stop, target=target, confidence=impact.confidence,
         rationale="News impact heuristic gated by independently supplied quote and ATR.",
         evidence_ids=[impact.evidence.evidence_id],
+    )
+
+
+class AffectedSecurity(BaseModel):
+    symbol: str
+    direction: Literal["positive", "negative", "mixed", "neutral", "uncertain"]
+    impact_score: float = Field(ge=0, le=100)
+    confidence: float = Field(ge=0, le=1)
+    horizon: str
+    relationship_type: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    rationale: str
+
+
+class NewsImpactResult(BaseModel):
+    news_fingerprint: str
+    unresolved_entities: list[str] = Field(default_factory=list)
+    affected_securities: list[AffectedSecurity]
+    evaluated_relationships: int
+    rejected_relationships: int
+
+
+def map_news_impact(
+    impact: NewsImpact,
+    relationships: list[RelationshipEdge],
+    *,
+    as_of: datetime,
+    minimum_relationship_confidence: float = 0.7,
+) -> NewsImpactResult:
+    """Map only explicitly evidenced relationships with an explicit transmission rule."""
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("as_of must be timezone-aware")
+    if not 0 <= minimum_relationship_confidence <= 1:
+        raise ValueError("minimum relationship confidence must be between 0 and 1")
+
+    direct_direction: Literal["positive", "negative", "mixed", "neutral", "uncertain"]
+    if impact.sentiment > 0:
+        direct_direction = "positive"
+    elif impact.sentiment < 0:
+        direct_direction = "negative"
+    else:
+        direct_direction = "neutral"
+
+    securities: dict[str, AffectedSecurity] = {}
+    for symbol in impact.symbols:
+        securities[symbol] = AffectedSecurity(
+            symbol=symbol, direction=direct_direction, impact_score=impact.impact_score,
+            confidence=impact.confidence, horizon="event-dependent",
+            relationship_type="direct", evidence_ids=[impact.evidence.evidence_id],
+            rationale="Direct symbol mapping from the source news record.",
+        )
+
+    evaluated = 0
+    rejected = 0
+    for edge in relationships:
+        if edge.source_symbol.upper() not in impact.symbols:
+            continue
+        if edge.valid_from > as_of or (edge.valid_until is not None and edge.valid_until < as_of):
+            rejected += 1
+            continue
+        if edge.confidence < minimum_relationship_confidence:
+            rejected += 1
+            continue
+        evaluated += 1
+        if edge.transmission == "same":
+            direction = direct_direction
+        elif edge.transmission == "inverse":
+            direction = (
+                "negative" if direct_direction == "positive"
+                else "positive" if direct_direction == "negative"
+                else "uncertain"
+            )
+        elif edge.transmission == "mixed":
+            direction = "mixed"
+        else:
+            direction = "uncertain"
+        candidate = AffectedSecurity(
+            symbol=edge.target_symbol.upper(), direction=direction,
+            impact_score=impact.impact_score * edge.confidence,
+            confidence=min(impact.confidence, edge.confidence),
+            horizon="relationship-dependent",
+            relationship_type=edge.relationship_type,
+            evidence_ids=sorted(set(edge.evidence_ids + [impact.evidence.evidence_id])),
+            rationale=(
+                f"Indirect exposure via {edge.relationship_type}; "
+                f"transmission={edge.transmission}. Direction remains uncertain "
+                "unless the relationship explicitly defines same/inverse transmission."
+            ),
+        )
+        existing = securities.get(candidate.symbol)
+        if existing is None:
+            securities[candidate.symbol] = candidate
+        else:
+            directions = {existing.direction, candidate.direction}
+            if len(directions) > 1:
+                existing.direction = "mixed"
+            existing.impact_score = max(existing.impact_score, candidate.impact_score)
+            existing.confidence = min(existing.confidence, candidate.confidence)
+            existing.evidence_ids = sorted(set(existing.evidence_ids + candidate.evidence_ids))
+            if candidate.relationship_type not in existing.relationship_type:
+                existing.relationship_type += f";{candidate.relationship_type}"
+
+    return NewsImpactResult(
+        news_fingerprint=impact.fingerprint,
+        unresolved_entities=[],
+        affected_securities=list(securities.values()),
+        evaluated_relationships=evaluated,
+        rejected_relationships=rejected,
     )
