@@ -252,6 +252,7 @@ class TradingEngine:
                         self.realized_pnl = float(self.ledger.realized_pnl)
                         self.daily_realized_pnl += float(cashflow)
                 self.processed_corporate_actions.add(record.action_id)
+                self._persist()
                 self.journal.append({
                     "type": "corporate_action_applied",
                     "action_id": record.action_id, "symbol": record.symbol,
