@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import numpy as np
 
+from app.agents.contracts import FundamentalSnapshot, InstitutionalSnapshot
 from app.contracts import CompanyAnnouncement, CompanyProfile, CorporateActionRecord, DataEnvelope, DataStatus, NewsRecord, OHLCVBar, Quote, RelationshipEdge
 
 
@@ -104,4 +105,23 @@ class MockMarketDataProvider:
         return DataEnvelope(
             source="mock", is_mock=True, as_of=datetime.now(timezone.utc), status=DataStatus.EMPTY,
             payload=[], warnings=["no relationship graph has been configured"],
+        )
+
+
+    async def get_fundamental_snapshot(
+        self, symbol: str, exchange: str = "NSE",
+    ) -> DataEnvelope[FundamentalSnapshot | None]:
+        return DataEnvelope(
+            source="mock", is_mock=True, as_of=datetime.now(timezone.utc),
+            status=DataStatus.EMPTY, payload=None,
+            warnings=["no synthetic financial statement or ratio values are generated"],
+        )
+
+    async def get_institutional_activity(
+        self, symbol: str, exchange: str = "NSE",
+    ) -> DataEnvelope[InstitutionalSnapshot | None]:
+        return DataEnvelope(
+            source="mock", is_mock=True, as_of=datetime.now(timezone.utc),
+            status=DataStatus.EMPTY, payload=None,
+            warnings=["no synthetic FII/DII or institutional-flow values are generated"],
         )
