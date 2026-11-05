@@ -57,6 +57,7 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     agent = AgentResult(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol="RELIANCE", conclusion="test signal",
+        findings={"signal": "bullish"},
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
@@ -169,6 +170,7 @@ def test_closed_market_calendar_blocks_new_entries(tmp_path, monkeypatch):
     agent = AgentResult(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol="RELIANCE", conclusion="test signal",
+        findings={"signal": "bullish"},
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
@@ -200,6 +202,7 @@ def test_corporate_action_restriction_blocks_technical_entry(tmp_path, monkeypat
     agent = AgentResult(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol="RELIANCE", conclusion="test signal",
+        findings={"signal": "bullish"},
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
@@ -247,7 +250,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     technical_agent = AgentResult(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol="BEL", conclusion="deterministic technical signal",
-        findings={"atr_14": 2.0},
+        findings={"atr_14": 2.0, "signal": "bullish"},
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
