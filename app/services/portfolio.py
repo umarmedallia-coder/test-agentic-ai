@@ -217,6 +217,21 @@ class PortfolioLedger:
         return total
 
     @property
+    def reserved_short_collateral(self) -> Decimal:
+        total = Decimal("0")
+        for position in self.positions.values():
+            if position.direction == "short":
+                if position.mark is None:
+                    raise ValueError(f"short position {position.symbol} has no valid mark")
+                total += position.mark * position.quantity
+        return total
+
+    @property
+    def available_cash(self) -> Decimal:
+        """Cash not reserved against marked short liabilities."""
+        return self.cash - self.reserved_short_collateral
+
+    @property
     def equity(self) -> Decimal | None:
         if self.unrealized_pnl is None:
             return None
