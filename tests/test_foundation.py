@@ -112,14 +112,19 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
 
     engine = TradingEngine(Settings(journal_dir=tmp_path))
     engine.start()
-    engine.cash = 8_999
+    engine.cash = 10_000
+    engine.ledger.apply_buy(PaperFill(
+        fill_id="entry-fill-1", signal_id="intent-1", symbol="RELIANCE",
+        side="buy", quantity=10, price=Decimal("100"), fees=Decimal("1"),
+    ))
     engine.positions = [Position(
         intent_id="intent-1", symbol="RELIANCE", exchange="NSE",
         direction="long", quantity=10, entry_price=100,
         stop_price=95, target_price=110, policy_version="test",
-        entry_fees=1,
+        entry_fees=1, entry_fill_id="entry-fill-1",
     )]
     engine.marks["RELIANCE"] = 100
+    engine.ledger.mark("RELIANCE", Decimal("100"))
     engine._close_triggered_positions(
         "RELIANCE", {"low": 94, "high": 111},
     )
