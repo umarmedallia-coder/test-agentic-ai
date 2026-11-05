@@ -1,7 +1,7 @@
 """Independent news and corporate-action strategy pipelines with fail-closed outputs."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date
 
 from app.contracts import CorporateActionRecord
 from app.data.contracts import MarketDataProvider
@@ -89,7 +89,7 @@ async def run_news_pipeline(
 async def run_corporate_actions_pipeline(
     provider: MarketDataProvider,
     symbol: str,
-    trading_day,
+    trading_day: date,
 ) -> tuple[AgentResult, bool]:
     feed = await provider.get_corporate_actions(symbol)
     if feed.status.value == "empty" or not feed.payload:
