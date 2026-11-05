@@ -392,6 +392,146 @@ class TradingEngine:
             for event in close_events:
                 self.journal.append(event)
 
+    def run_stock_discovery(self, limit: int | None = None) -> AgentResult:
+        """Scan a bounded provider universe using validated OHLCV and active paper policy."""
+        with self._lock:
+            if not self._started:
+                raise RuntimeError("Engine must be running to discover stocks")
+            maximum = limit if limit is not None else self.settings.discovery_max_symbols
+            if maximum < 1 or maximum > 500:
+                raise ValueError("discovery limit must be between 1 and 500")
+
+            async def scan_universe():
+                universe = await asyncio.wait_for(
+                    self.provider.get_stock_universe(self.settings.default_exchange),
+                    timeout=self.settings.agent_timeout_seconds,
+                )
+                if (
+                    universe.status.value != "ok" or not universe.payload
+                    or universe.freshness_seconds > self.settings.max_market_data_freshness_seconds
+                ):
+                    return universe, [], {}
+                symbols = list(dict.fromkeys(item.strip().upper() for item in universe.payload if item.strip()))
+                selected = symbols[:maximum]
+                concurrency = (
+                    self.settings.max_concurrent_tool_calls
+                    if self.settings.enable_parallel_execution else 1
+                )
+                semaphore = asyncio.Semaphore(concurrency)
+
+                async def collect_one(symbol: str):
+                    async with semaphore:
+                        try:
+                            validation = await asyncio.wait_for(
+                                self.provider.validate_stock_symbol(
+                                    symbol, self.settings.default_exchange,
+                                ),
+                                timeout=self.settings.agent_timeout_seconds,
+                            )
+                            if validation.status.value != "ok" or validation.payload is not True:
+                                return None, "symbol validation failed"
+                            now = datetime.now(timezone.utc)
+                            history = await asyncio.wait_for(
+                                self.provider.get_historical_prices(
+                                    symbol, now - timedelta(days=80), now,
+                                    self.settings.default_exchange,
+                                ),
+                                timeout=self.settings.agent_timeout_seconds,
+                            )
+                            if (
+                                history.status.value != "ok" or not history.payload
+                                or history.freshness_seconds > self.settings.max_market_data_freshness_seconds
+                            ):
+                                return None, f"history unavailable or stale: {history.status.value}"
+                            bars = [bar.model_dump(mode="python") for bar in history.payload]
+                            timestamps = [bar["timestamp"] for bar in bars]
+                            if (
+                                len(bars) < 35
+                                or any(bar["symbol"].upper() != symbol for bar in bars)
+                                or any(bar["exchange"] != self.settings.default_exchange for bar in bars)
+                                or timestamps != sorted(timestamps)
+                                or len(set(timestamps)) != len(timestamps)
+                            ):
+                                return None, "history failed symbol, exchange, ordering or length validation"
+                            technical, _ = analyze_technical(
+                                symbol, self.settings.default_exchange, bars,
+                                self.policy_registry.active.parameters,
+                                is_mock=history.is_mock,
+                            )
+                            if technical.status != AgentStatus.SUCCEEDED:
+                                return None, "technical history did not produce valid indicators"
+                            latest = bars[-1]
+                            last_price = float(latest["close"])
+                            average_volume = sum(
+                                int(row["volume"]) for row in bars[-20:]
+                            ) / min(20, len(bars))
+                            atr = float(technical.findings["atr_14"])
+                            fast = float(technical.findings["ema_fast"])
+                            slow = float(technical.findings["ema_slow"])
+                            signal = technical.findings.get("signal")
+                            trend = signal if signal in {"bullish", "bearish"} else "sideways"
+                            return DiscoveryCandidate(
+                                symbol=symbol, exchange=self.settings.default_exchange,
+                                last_price=last_price,
+                                average_daily_turnover=average_volume * last_price,
+                                atr_pct=atr / last_price * 100,
+                                trend_direction=trend,
+                                trend_strength=min(1.0, abs(fast - slow) / atr) if atr > 0 else 0.0,
+                                data_as_of=latest["timestamp"], source=history.source,
+                                is_mock=history.is_mock,
+                            ), None
+                        except Exception as exc:
+                            return None, f"{type(exc).__name__}: {exc}"
+
+                collected = await asyncio.gather(*(collect_one(symbol) for symbol in selected))
+                candidates = [candidate for candidate, error in collected if candidate is not None]
+                rejected = {
+                    symbol: error
+                    for symbol, (candidate, error) in zip(selected, collected)
+                    if candidate is None and error is not None
+                }
+                return universe, candidates, rejected, len(symbols), len(selected)
+
+            try:
+                result = asyncio.run(scan_universe())
+            except Exception as exc:
+                agent = AgentResult(
+                    agent_name="Stock Discovery Agent", status=AgentStatus.FAILED,
+                    conclusion="Stock universe discovery failed before candidate evaluation.",
+                    errors=[f"{type(exc).__name__}: {exc}"],
+                )
+            else:
+                universe, candidates, rejected, universe_count, scanned_count = result
+                if universe.status.value != "ok" or not universe.payload:
+                    agent = AgentResult(
+                        agent_name="Stock Discovery Agent",
+                        status=AgentStatus.SKIPPED if universe.status.value == "empty" else AgentStatus.FAILED,
+                        conclusion="Stock universe is empty, stale or unavailable; no candidates were inferred.",
+                        findings={"feed_status": universe.status.value, "source": universe.source},
+                        errors=universe.warnings if universe.status.value != "empty" else [],
+                        is_mock=universe.is_mock,
+                    )
+                else:
+                    agent = discover_stocks(candidates, limit=maximum)
+                    agent.findings.update({
+                        "universe_count": universe_count,
+                        "scanned_count": scanned_count,
+                        "provider_rejections": rejected,
+                        "universe_source": universe.source,
+                    })
+                    agent.is_mock = universe.is_mock or any(item.is_mock for item in candidates)
+            self.agents = [
+                item for item in self.agents
+                if item.agent_name != "Stock Discovery Agent"
+            ]
+            self.agents.append(agent)
+            self.journal.append({
+                "type": "stock_discovery_completed",
+                "result": agent.model_dump(mode="json"),
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
+            return agent
+
     def run_cycle(self, symbol: str = "RELIANCE", exchange: str = "NSE") -> None:
         with self._lock:
             if not self._started:
