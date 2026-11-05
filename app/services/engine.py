@@ -406,11 +406,10 @@ class TradingEngine:
                     self.provider.get_stock_universe(self.settings.default_exchange),
                     timeout=self.settings.agent_timeout_seconds,
                 )
-                if (
-                    universe.status.value != "ok" or not universe.payload
-                    or universe.freshness_seconds > self.settings.max_market_data_freshness_seconds
-                ):
-                    return universe, [], {}
+                if universe.status.value != "ok" or not universe.payload:
+                    return universe, [], {}, 0, 0
+                if universe.freshness_seconds > self.settings.max_market_data_freshness_seconds:
+                    return universe, [], {"__universe__": "stale universe snapshot"}, len(universe.payload), 0
                 symbols = list(dict.fromkeys(item.strip().upper() for item in universe.payload if item.strip()))
                 selected = symbols[:maximum]
                 concurrency = (
@@ -502,13 +501,22 @@ class TradingEngine:
                 )
             else:
                 universe, candidates, rejected, universe_count, scanned_count = result
-                if universe.status.value != "ok" or not universe.payload:
+                if (
+                    universe.status.value != "ok" or not universe.payload
+                    or universe.freshness_seconds > self.settings.max_market_data_freshness_seconds
+                ):
+                    unavailable = (
+                        universe.status.value == "empty"
+                        or universe.freshness_seconds > self.settings.max_market_data_freshness_seconds
+                    )
                     agent = AgentResult(
                         agent_name="Stock Discovery Agent",
-                        status=AgentStatus.SKIPPED if universe.status.value == "empty" else AgentStatus.FAILED,
+                        status=AgentStatus.SKIPPED if unavailable else AgentStatus.FAILED,
                         conclusion="Stock universe is empty, stale or unavailable; no candidates were inferred.",
-                        findings={"feed_status": universe.status.value, "source": universe.source},
-                        errors=universe.warnings if universe.status.value != "empty" else [],
+                        findings={"feed_status": universe.status.value, "source": universe.source,
+                                  "freshness_seconds": universe.freshness_seconds},
+                        errors=(universe.warnings if universe.status.value != "empty"
+                                else ["Stock universe is empty"]),
                         is_mock=universe.is_mock,
                     )
                 else:
