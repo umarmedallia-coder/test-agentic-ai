@@ -368,6 +368,16 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
     assert engine.ledger.cash == Decimal("9039")
     engine.stop()
 
+    recovered = TradingEngine(Settings(
+        initial_capital_inr=10_000, journal_dir=tmp_path,
+    ))
+    recovered.start()
+    assert recovered.processed_corporate_actions == {"split-1", "dividend-1"}
+    recovered._apply_due_corporate_actions(agent, "ABC", now.date())
+    assert recovered.positions[0].quantity == 20
+    assert recovered.ledger.cash == Decimal("9039")
+    recovered.stop()
+
 
 def test_risk_manager_enforces_configured_gross_exposure_cap(tmp_path):
     settings = Settings(
