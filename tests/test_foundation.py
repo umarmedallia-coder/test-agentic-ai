@@ -315,7 +315,7 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
 
     from app.contracts import PaperFill
 
-    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine = TradingEngine(Settings(initial_capital_inr=10_000, journal_dir=tmp_path))
     now = datetime.now(UTC)
     entry_fill = PaperFill(
         signal_id="entry", symbol="ABC", side="buy",
