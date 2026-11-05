@@ -12,6 +12,7 @@ from app.services.news import (
     build_news_signal,
     deduplicate_news,
     map_news_to_symbols,
+    map_news_impact,
     score_news,
 )
 
@@ -69,6 +70,12 @@ async def run_news_pipeline(
         ), None
     relevant.sort(key=lambda item: (item.impact_score * item.confidence), reverse=True)
     selected = relevant[0]
+    relationships_feed = await provider.get_company_relationships(symbol)
+    mapped_impact = map_news_impact(
+        selected,
+        relationships_feed.payload if relationships_feed.status.value == "ok" else [],
+        as_of=selected.evidence.observed_at,
+    )
     signal = build_news_signal(selected, reference_price, atr)
     result = AgentResult(
         agent_name="News Intelligence Agent", status=AgentStatus.SUCCEEDED,
@@ -77,6 +84,10 @@ async def run_news_pipeline(
             "sentiment": selected.sentiment, "impact_score": selected.impact_score,
             "confidence": selected.confidence,
             "headline": selected.headline, "deduplicated_items": len(impacts),
+            "affected_securities": [item.model_dump(mode="json") for item in mapped_impact.affected_securities],
+            "evaluated_relationships": mapped_impact.evaluated_relationships,
+            "rejected_relationships": mapped_impact.rejected_relationships,
+            "relationship_feed_status": relationships_feed.status.value,
         },
         evidence=[Evidence(
             source=selected.evidence.source, observed_at=selected.evidence.observed_at,
