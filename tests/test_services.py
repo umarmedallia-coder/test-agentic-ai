@@ -4,9 +4,9 @@ from decimal import Decimal
 import pytest
 
 from app.contracts import OHLCVBar, PaperFill, Signal
-from app.services.corporate_actions import ActionType, CorporateAction, blocks_new_entry
+from app.services.corporate_actions import (\n    ActionType, CorporateAction, blocks_new_entry, dividend_entitlement, split_adjustment,\n)
 from app.services.execution import PaperBroker, PaperExecutionConfig
-from app.services.news import NewsItem, deduplicate_news, map_news_to_symbols, score_news
+from app.services.news import (\n    NewsItem, build_news_signal, deduplicate_news, map_news_to_symbols, score_news,\n)
 from app.services.orchestrator import AgentOrchestrator
 from app.services.portfolio import PortfolioLedger
 
@@ -64,3 +64,36 @@ async def test_orchestrator_isolates_failures_and_runs_peers():
     runner=AgentOrchestrator(max_parallel=2,retries=0)
     result=await runner.run_parallel({"ok":ok,"bad":bad})
     assert {r["status"] for r in result} == {"succeeded","failed"}
+
+
+def test_news_signal_uses_only_supplied_price_and_atr():
+    now = datetime.now(UTC)
+    item = NewsItem(
+        headline="Company wins major order and profit rises; upgrade approval",
+        source="exchange", published_at=now, symbols=["ABC"],
+    )
+    impact = score_news(item)
+    signal = build_news_signal(impact, 100, 2)
+    assert signal is not None
+    assert signal.entry == Decimal("100")
+    assert signal.stop == Decimal("97.0")
+    assert signal.target == Decimal("105.0")
+
+
+def test_verified_split_and_dividend_accounting():
+    today = datetime.now(UTC).date()
+    split = CorporateAction(
+        symbol="ABC", action_type=ActionType.SPLIT, announcement_date=today,
+        ex_date=today, source="exchange", verified=True,
+        ratio_from=Decimal("1"), ratio_to=Decimal("2"),
+    )
+    quantity, cost = split_adjustment(10, Decimal("100"), split)
+    assert quantity == 20
+    assert cost == Decimal("50")
+    dividend = CorporateAction(
+        symbol="ABC", action_type=ActionType.DIVIDEND, announcement_date=today,
+        ex_date=today, record_date=today, source="exchange", verified=True,
+        cash_amount=Decimal("5"),
+    )
+    assert dividend_entitlement(20, dividend, True) == Decimal("100")
+    assert dividend_entitlement(20, dividend, False) == Decimal("0")
