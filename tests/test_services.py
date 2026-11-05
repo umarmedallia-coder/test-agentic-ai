@@ -140,11 +140,17 @@ def test_portfolio_ledger_applies_split_and_dividend_cashflow():
     )
     ledger.apply_buy(fill)
     quantity, average_cost = ledger.apply_split(
-        "ABC", Decimal("1"), Decimal("2"),
+        "ABC", Decimal("1"), Decimal("2"), action_id="split-1",
     )
     assert quantity == 20
     assert average_cost == Decimal("50")
     assert ledger.positions["ABC"].mark == Decimal("50")
-    dividend = ledger.apply_dividend("ABC", Decimal("5"))
+    duplicate_quantity, _ = ledger.apply_split(
+        "ABC", Decimal("1"), Decimal("2"), action_id="split-1",
+    )
+    assert duplicate_quantity == 20
+    dividend = ledger.apply_dividend("ABC", Decimal("5"), action_id="dividend-1")
     assert dividend == Decimal("100")
     assert ledger.realized_pnl == Decimal("100")
+    assert ledger.apply_dividend("ABC", Decimal("5"), action_id="dividend-1") == Decimal("0")
+    assert ledger.cash == Decimal("10099")
