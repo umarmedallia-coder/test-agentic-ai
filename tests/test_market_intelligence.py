@@ -77,3 +77,20 @@ async def test_market_intelligence_ignores_non_finite_benchmark_values():
     )
     assert result.status == AgentStatus.FAILED
     assert result.findings == {}
+
+
+@pytest.mark.asyncio
+async def test_engine_cycle_publishes_market_intelligence_agent(tmp_path):
+    from app.config import Settings
+    from app.services.engine import TradingEngine
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    engine.run_cycle()
+    market_agent = next(
+        item for item in engine.agents
+        if item.agent_name == "Market Intelligence Agent"
+    )
+    assert market_agent.status in {AgentStatus.SUCCEEDED, AgentStatus.FAILED}
+    assert "regime" in market_agent.findings
+    engine.stop()
