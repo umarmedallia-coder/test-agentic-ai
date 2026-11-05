@@ -148,3 +148,29 @@ def test_recovery_replays_corporate_actions_before_snapshot(tmp_path):
     assert restarted.cash == 9_712
     assert restarted.realized_pnl == 12
     restarted.stop()
+
+def test_recovery_replays_risk_intent_and_scheduler_lifecycle(tmp_path):
+    settings = Settings(journal_dir=tmp_path, initial_capital_inr=10_000)
+    crashed = TradingEngine(settings)
+    crashed.start()
+    crashed.journal.append({
+        "type": "risk_decision",
+        "intent": {"id": "risk-intent-1"},
+        "decision": {"accepted": False, "reasons": ["test rejection"]},
+    })
+    crashed.journal.append({"type": "entries_paused"})
+    crashed.journal.append({"type": "scheduler_started"})
+    crashed.journal.release()
+
+    recovered = TradingEngine(settings)
+    recovered.start()
+    assert "risk-intent-1" in recovered._processed_intents
+    assert recovered.paused is True
+    assert recovered.snapshot()["scheduler_recovery_required"] is True
+    recovered.stop()
+
+    restarted = TradingEngine(settings)
+    restarted.start()
+    assert restarted.paused is True
+    assert restarted.snapshot()["scheduler_recovery_required"] is False
+    restarted.stop()
