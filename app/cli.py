@@ -19,6 +19,7 @@ def main() -> None:
     )
     start.add_argument("--symbol", default="RELIANCE")
     start.add_argument("--exchange", choices=["NSE", "BSE"], default="NSE")
+    start.add_argument("--once", action="store_true", help="Run one cycle and exit")
     args = parser.parse_args()
     if args.command == "ui":
         print("Dashboard: http://localhost:8501")
@@ -29,9 +30,15 @@ def main() -> None:
     settings = Settings(strategy_mode=args.strategy_mode)
     engine = TradingEngine(settings)
     try:
-        engine.start()
-        engine.run_cycle(symbol=args.symbol, exchange=args.exchange)
-        print(engine.snapshot())
+        engine.start(automatic=not args.once)
+        if args.once:
+            engine.run_cycle(symbol=args.symbol, exchange=args.exchange)
+            print(engine.snapshot())
+        else:
+            print("Paper engine running. Press Ctrl+C to stop safely.")
+            import time
+            while True:
+                time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
