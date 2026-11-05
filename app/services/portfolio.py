@@ -1,9 +1,9 @@
-"""Canonical Decimal portfolio accounting with idempotent fills and corporate actions."""
+"""Canonical Decimal portfolio accounting with idempotent long/short fills and corporate actions."""
 from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.contracts import PaperFill
 
@@ -12,17 +12,31 @@ class OpenPosition(BaseModel):
     symbol: str
     quantity: int = Field(gt=0)
     average_entry: Decimal = Field(gt=0)
+    direction: str = "long"
     entry_fees: Decimal = Field(default=Decimal("0"), ge=0)
     mark: Decimal | None = None
+
+    @model_validator(mode="after")
+    def validate_direction(self):
+        if self.direction not in {"long", "short"}:
+            raise ValueError("position direction must be long or short")
+        return self
 
     @property
     def unrealized_pnl(self) -> Decimal | None:
         if self.mark is None:
             return None
-        return (self.mark - self.average_entry) * self.quantity - self.entry_fees
+        movement = (
+            self.mark - self.average_entry
+            if self.direction == "long"
+            else self.average_entry - self.mark
+        )
+        return movement * self.quantity - self.entry_fees
 
 
 class PortfolioLedger:
+    """Cash/position ledger; short-sale proceeds remain cash against a marked liability."""
+
     def __init__(self, starting_cash: Decimal = Decimal("1000000")) -> None:
         if starting_cash <= 0:
             raise ValueError("starting cash must be positive")
@@ -33,40 +47,67 @@ class PortfolioLedger:
         self._applied_fills: set[str] = set()
         self._applied_actions: set[str] = set()
 
-    def apply_buy(self, fill: PaperFill) -> None:
+    def _open(self, fill: PaperFill, direction: str) -> None:
         if fill.fill_id in self._applied_fills:
             return
-        if fill.side.lower() not in {"buy", "long"}:
-            raise ValueError("apply_buy requires a buy/long fill")
-        notional = fill.price * fill.quantity
-        if notional + fill.fees > self.cash:
-            raise ValueError("insufficient paper cash")
+        expected = {"long": {"buy", "long"}, "short": {"short", "sell"}}[direction]
+        if fill.side.lower() not in expected:
+            raise ValueError(f"{direction} opening requires side in {sorted(expected)}")
         old = self.positions.get(fill.symbol)
+        if old and old.direction != direction:
+            raise ValueError("cannot net an opposite-side position; close it explicitly first")
+        notional = fill.price * fill.quantity
+        if direction == "long":
+            if notional + fill.fees > self.cash:
+                raise ValueError("insufficient paper cash")
+            self.cash -= notional + fill.fees
+        else:
+            # Proceeds are held as cash; the short market value is deducted in equity.
+            self.cash += notional - fill.fees
         total_qty = fill.quantity + (old.quantity if old else 0)
         total_cost = notional + (old.average_entry * old.quantity if old else 0)
         fees = fill.fees + (old.entry_fees if old else Decimal("0"))
         self.positions[fill.symbol] = OpenPosition(
             symbol=fill.symbol, quantity=total_qty,
-            average_entry=total_cost / total_qty, entry_fees=fees, mark=fill.price,
+            average_entry=total_cost / total_qty, direction=direction,
+            entry_fees=fees, mark=fill.price,
         )
-        self.cash -= notional + fill.fees
         self._applied_fills.add(fill.fill_id)
 
-    def apply_sell(self, fill: PaperFill) -> Decimal:
-        """Close or reduce a long position and realize net P&L exactly once."""
+    def apply_buy(self, fill: PaperFill) -> None:
+        self._open(fill, "long")
+
+    def apply_short(self, fill: PaperFill) -> None:
+        """Open or add to a short position; never used as a long-position exit."""
+        self._open(fill, "short")
+
+    def _close(self, fill: PaperFill, expected_direction: str) -> Decimal:
         if fill.fill_id in self._applied_fills:
             return Decimal("0")
-        if fill.side.lower() not in {"sell", "short"}:
-            raise ValueError("apply_sell requires a sell/short fill")
+        expected_side = {"long": {"sell", "short"}, "short": {"buy", "cover"}}[expected_direction]
+        if fill.side.lower() not in expected_side:
+            raise ValueError(f"{expected_direction} close requires side in {sorted(expected_side)}")
         position = self.positions.get(fill.symbol)
-        if position is None or fill.quantity > position.quantity:
-            raise ValueError("sell quantity exceeds the open paper position")
+        if position is None or position.direction != expected_direction:
+            raise ValueError(f"no open {expected_direction} position for {fill.symbol}")
+        if fill.quantity > position.quantity:
+            raise ValueError("close quantity exceeds the open paper position")
         allocated_entry_fees = (
             position.entry_fees * Decimal(fill.quantity) / Decimal(position.quantity)
         )
-        gross = (fill.price - position.average_entry) * fill.quantity
+        gross = (
+            (fill.price - position.average_entry) * fill.quantity
+            if expected_direction == "long"
+            else (position.average_entry - fill.price) * fill.quantity
+        )
         net = gross - allocated_entry_fees - fill.fees
-        self.cash += fill.price * fill.quantity - fill.fees
+        if expected_direction == "long":
+            self.cash += fill.price * fill.quantity - fill.fees
+        else:
+            cover_cost = fill.price * fill.quantity + fill.fees
+            if cover_cost > self.cash:
+                raise ValueError("insufficient paper cash to cover short position")
+            self.cash -= cover_cost
         self.realized_pnl += net
         remaining_quantity = position.quantity - fill.quantity
         if remaining_quantity == 0:
@@ -76,6 +117,14 @@ class PortfolioLedger:
             position.entry_fees -= allocated_entry_fees
         self._applied_fills.add(fill.fill_id)
         return net
+
+    def apply_sell(self, fill: PaperFill) -> Decimal:
+        """Close or reduce a long position; the legacy 'short' side label is accepted."""
+        return self._close(fill, "long")
+
+    def apply_cover(self, fill: PaperFill) -> Decimal:
+        """Close or reduce a short position by buying shares back."""
+        return self._close(fill, "short")
 
     def apply_split(
         self, symbol: str, ratio_from: Decimal, ratio_to: Decimal, action_id: str,
@@ -114,8 +163,13 @@ class PortfolioLedger:
             self._applied_actions.add(action_id)
             return Decimal("0")
         cashflow = Decimal(position.quantity) * cash_per_share
-        self.cash += cashflow
-        self.realized_pnl += cashflow
+        if position.direction == "short":
+            self.cash -= cashflow
+            self.realized_pnl -= cashflow
+            cashflow = -cashflow
+        else:
+            self.cash += cashflow
+            self.realized_pnl += cashflow
         self._applied_actions.add(action_id)
         return cashflow
 
@@ -137,14 +191,17 @@ class PortfolioLedger:
 
     @property
     def equity(self) -> Decimal | None:
-        unrealized = self.unrealized_pnl
-        if unrealized is None:
+        if self.unrealized_pnl is None:
             return None
-        market_value = sum(
+        long_assets = sum(
             (position.mark or position.average_entry) * position.quantity
-            for position in self.positions.values()
+            for position in self.positions.values() if position.direction == "long"
         )
-        return self.cash + market_value
+        short_liabilities = sum(
+            (position.mark or position.average_entry) * position.quantity
+            for position in self.positions.values() if position.direction == "short"
+        )
+        return self.cash + long_assets - short_liabilities
 
     def snapshot(self) -> dict:
         return {
