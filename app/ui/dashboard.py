@@ -128,6 +128,10 @@ if page == "Overview":
         if selected_symbol != "All":
             completed = [row for row in completed if row["symbol"] == selected_symbol]
         st.dataframe(completed, use_container_width=True)
+        st.subheader("Strategy attribution")
+        st.dataframe(snapshot["strategy_performance"], use_container_width=True)
+        if not snapshot["strategy_attribution_reconciles"]:
+            st.warning("Strategy-level net P&L does not reconcile to completed account outcomes.")
         st.subheader("Learning review")
         report = engine.learning_report()
         st.write(
