@@ -95,6 +95,7 @@ class OpenAICompatibleProvider:
             timeout=self.timeout_seconds + 1,
         )
         try:
+            estimated_cost = None
             if self.provider == "ollama":
                 raw = response["message"]["content"]
                 prompt_tokens = int(response.get("prompt_eval_count", 0))
@@ -104,6 +105,8 @@ class OpenAICompatibleProvider:
                 usage_data = response.get("usage", {})
                 prompt_tokens = int(usage_data.get("prompt_tokens", 0))
                 completion_tokens = int(usage_data.get("completion_tokens", 0))
+                if usage_data.get("cost") is not None:
+                    estimated_cost = float(usage_data["cost"])
             parsed = output_model.model_validate_json(raw)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMProviderError("provider response did not match the requested schema") from exc
@@ -111,5 +114,6 @@ class OpenAICompatibleProvider:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            estimated_cost_usd=estimated_cost,
         )
         return parsed, usage
