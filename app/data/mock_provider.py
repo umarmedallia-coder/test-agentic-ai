@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from app.contracts import DataEnvelope, OHLCVBar, Quote
+from app.contracts import (\n    CompanyAnnouncement, CompanyProfile, CorporateActionRecord, DataEnvelope,\n    DataStatus, NewsRecord, OHLCVBar, Quote, RelationshipEdge,\n)
 
 
 class MockMarketDataProvider:
@@ -49,3 +49,59 @@ class MockMarketDataProvider:
 
     async def validate_stock_symbol(self, symbol: str, exchange: str = "NSE") -> DataEnvelope[bool]:
         return DataEnvelope(source="mock",as_of=datetime.now(timezone.utc),payload=symbol.upper() in self._symbols,warnings=["synthetic symbol registry"])
+
+
+    async def get_stock_news(self, symbol: str, since: datetime | None = None) -> DataEnvelope[list[NewsRecord]]:
+        return DataEnvelope(
+            source="mock", as_of=datetime.now(timezone.utc), status=DataStatus.EMPTY,
+            payload=[], warnings=["mock news feed contains no articles"],
+        )
+
+    async def get_news_details(self, news_id: str) -> DataEnvelope[NewsRecord]:
+        raise ValueError(f"unknown mock news id: {news_id}")
+
+    async def get_company_announcements(self, symbol: str) -> DataEnvelope[list[CompanyAnnouncement]]:
+        return DataEnvelope(
+            source="mock", as_of=datetime.now(timezone.utc), status=DataStatus.EMPTY,
+            payload=[], warnings=["mock announcement feed contains no records"],
+        )
+
+    async def get_corporate_actions(self, symbol: str) -> DataEnvelope[list[CorporateActionRecord]]:
+        return DataEnvelope(
+            source="mock", as_of=datetime.now(timezone.utc), status=DataStatus.EMPTY,
+            payload=[], warnings=["mock corporate-action feed contains no records"],
+        )
+
+    async def resolve_company_entity(self, query: str) -> DataEnvelope[str | None]:
+        aliases = {
+            "reliance industries": "RELIANCE", "hdfc bank": "HDFCBANK",
+            "infosys": "INFY", "bharat electronics": "BEL",
+            "tata consultancy services": "TCS",
+        }
+        resolved = aliases.get(query.strip().lower())
+        return DataEnvelope(
+            source="mock", as_of=datetime.now(timezone.utc),
+            status=DataStatus.OK if resolved else DataStatus.EMPTY,
+            payload=resolved, warnings=["exact mock alias matching only"],
+        )
+
+    async def get_company_profile(self, symbol: str) -> DataEnvelope[CompanyProfile]:
+        names = {
+            "RELIANCE": "Reliance Industries", "HDFCBANK": "HDFC Bank",
+            "INFY": "Infosys", "BEL": "Bharat Electronics",
+            "TCS": "Tata Consultancy Services",
+        }
+        normalized = symbol.upper()
+        if normalized not in names:
+            raise ValueError(f"unknown mock symbol: {symbol}")
+        profile = CompanyProfile(
+            symbol=normalized, company_name=names[normalized], exchange="NSE", source="mock",
+        )
+        return DataEnvelope(source="mock", as_of=datetime.now(timezone.utc), payload=profile,
+                            warnings=["synthetic company profile"])
+
+    async def get_company_relationships(self, symbol: str) -> DataEnvelope[list[RelationshipEdge]]:
+        return DataEnvelope(
+            source="mock", as_of=datetime.now(timezone.utc), status=DataStatus.EMPTY,
+            payload=[], warnings=["no relationship graph has been configured"],
+        )
