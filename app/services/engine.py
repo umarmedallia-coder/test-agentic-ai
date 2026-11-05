@@ -192,7 +192,7 @@ class TradingEngine:
                 if fill.fill_id in applied_fills:
                     continue
                 intent_id = event.get("intent_id")
-                closing_position = next(
+                closing_position: Position | None = next(
                     (item for item in self.positions if item.intent_id == intent_id),
                     None,
                 )
