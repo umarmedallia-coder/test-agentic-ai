@@ -70,6 +70,7 @@ class RiskManager:
         candidate_sector: str | None = None,
         current_sector_exposure: float = 0.0,
         unclassified_exposure: float = 0.0,
+        correlated_exposure: float = 0.0,
         average_volume: int | None = None,
         max_participation_pct: float = 0.01,
         lot_size: int = 1,
@@ -77,7 +78,7 @@ class RiskManager:
         reasons: list[str] = []
         numeric_inputs = [
             equity, daily_pnl, available_cash, current_exposure, current_symbol_exposure,
-            current_sector_exposure, unclassified_exposure,
+            current_sector_exposure, unclassified_exposure, correlated_exposure,
         ]
         if equity_peak is not None:
             numeric_inputs.append(equity_peak)
@@ -91,12 +92,16 @@ class RiskManager:
         if (
             available_cash < 0 or current_exposure < 0 or current_symbol_exposure < 0
             or current_sector_exposure < 0 or unclassified_exposure < 0
+            or correlated_exposure < 0
         ):
             reasons.append("Available cash and exposure values cannot be negative")
         if not candidate_sector or not candidate_sector.strip():
             reasons.append("Verified sector classification is required for sector risk controls")
         if unclassified_exposure > 0:
             reasons.append("Open positions contain unclassified sector exposure")
+        correlated_limit = equity * self.settings.max_correlated_exposure_pct
+        if correlated_exposure >= correlated_limit:
+            reasons.append("Correlated portfolio exposure limit is already reached")
         if open_positions >= self.settings.max_open_positions:
             reasons.append("Maximum open positions reached")
         if daily_pnl <= -(equity * self.settings.max_daily_loss_pct):
@@ -122,6 +127,8 @@ class RiskManager:
             reasons.append("Insufficient available cash")
         if current_exposure + notional > exposure_limit:
             reasons.append("Portfolio gross exposure limit would be exceeded")
+        if correlated_exposure + notional > correlated_limit:
+            reasons.append("Correlated portfolio exposure limit would be exceeded")
         symbol_limit = equity * self.settings.max_single_position_exposure_pct
         if current_symbol_exposure + notional > symbol_limit:
             reasons.append("Single-symbol concentration limit would be exceeded")
