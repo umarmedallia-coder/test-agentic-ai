@@ -5,7 +5,7 @@ import pytest
 
 from app.config import Settings
 from app.contracts import CompanyProfile, CorporateActionRecord, DataEnvelope, NewsRecord, PaperFill
-from app.models import AgentResult, AgentStatus, TradeIntent
+from app.models import AgentResult, AgentStatus, Position, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.learning import CandidateEvaluation, PaperPolicy
 from app.services.journal import JournalError, JsonlJournal
@@ -308,3 +308,60 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     }
     assert engine.positions[0].entry_price > 100
     engine.stop()
+
+
+def test_engine_applies_split_and_dividend_actions_once(tmp_path):
+    from datetime import timedelta
+
+    from app.contracts import PaperFill
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    now = datetime.now(UTC)
+    entry_fill = PaperFill(
+        signal_id="entry", symbol="ABC", side="buy",
+        quantity=10, price=Decimal("100"), fees=Decimal("1"),
+    )
+    engine.ledger.apply_buy(entry_fill)
+    engine.ledger.mark("ABC", Decimal("100"))
+    engine.marks["ABC"] = 100.0
+    engine.positions.append(Position(
+        symbol="ABC", quantity=10, entry_price=100,
+        stop_price=90, target_price=120, mark=100,
+        opened_at=now - timedelta(days=2),
+        entry_fees=1, entry_fill_id=entry_fill.fill_id,
+        intent_id="entry-intent",
+    ))
+    split = CorporateActionRecord(
+        action_id="split-1", symbol="ABC", action_type="split",
+        announcement_date=now - timedelta(days=5), ex_date=now,
+        source="exchange", verified=True,
+        ratio_from=Decimal("1"), ratio_to=Decimal("2"),
+    )
+    dividend = CorporateActionRecord(
+        action_id="dividend-1", symbol="ABC", action_type="dividend",
+        announcement_date=now - timedelta(days=5), ex_date=now,
+        source="exchange", verified=True, cash_amount=Decimal("2"),
+    )
+    agent = AgentResult(
+        agent_name="Corporate Actions Agent", status=AgentStatus.SUCCEEDED,
+        symbol="ABC", findings={
+            "actions": [
+                split.model_dump(mode="json"),
+                dividend.model_dump(mode="json"),
+            ],
+        },
+    )
+    assert not engine._apply_due_corporate_actions(agent, "ABC", now.date())
+    assert engine.positions[0].quantity == 20
+    assert engine.positions[0].entry_price == 50
+    assert engine.positions[0].stop_price == 45
+    assert engine.positions[0].target_price == 60
+    assert engine.ledger.positions["ABC"].quantity == 20
+    assert engine.ledger.cash == Decimal("9039")
+    assert engine.realized_pnl == 40
+    assert engine.processed_corporate_actions == {"split-1", "dividend-1"}
+
+    # Reprocessing the same source records must not adjust shares or cash twice.
+    engine._apply_due_corporate_actions(agent, "ABC", now.date())
+    assert engine.positions[0].quantity == 20
+    assert engine.ledger.cash == Decimal("9039")
