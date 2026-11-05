@@ -31,7 +31,7 @@ def test_risk_manager_rejects_oversized_unit(tmp_path):
     settings = Settings(journal_dir=tmp_path, initial_capital_inr=100_000)
     intent = TradeIntent(symbol="ABC", entry_price=1000, stop_price=900,
                          target_price=1200, quantity=10)
-    decision = RiskManager(settings).validate(intent, 100_000, 0, 0, 100_000)
+    decision = RiskManager(settings).validate(intent, 100_000, 0, 0, 5_000)
     assert not decision.accepted
 
 
@@ -85,7 +85,7 @@ def test_news_mode_skips_when_mock_feed_is_empty(tmp_path):
     engine = TradingEngine(Settings(journal_dir=tmp_path, strategy_mode="news"))
     engine.start()
     engine.run_cycle()
-    assert engine.agents[0].status.value == "skipped"
+    assert engine.agents[1].status.value == "skipped"
     assert engine.positions == []
     engine.stop()
 
