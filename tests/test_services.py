@@ -128,3 +128,21 @@ def test_verified_split_and_dividend_accounting():
     )
     assert dividend_entitlement(20, dividend, True) == Decimal("100")
     assert dividend_entitlement(20, dividend, False) == Decimal("0")
+
+
+def test_portfolio_ledger_applies_split_and_dividend_cashflow():
+    ledger = PortfolioLedger(Decimal("10000"))
+    fill = PaperFill(
+        signal_id="corporate-action-position", symbol="ABC", side="buy",
+        quantity=10, price=Decimal("100"), fees=Decimal("1"),
+    )
+    ledger.apply_buy(fill)
+    quantity, average_cost = ledger.apply_split(
+        "ABC", Decimal("1"), Decimal("2"),
+    )
+    assert quantity == 20
+    assert average_cost == Decimal("50")
+    assert ledger.positions["ABC"].mark == Decimal("50")
+    dividend = ledger.apply_dividend("ABC", Decimal("5"))
+    assert dividend == Decimal("100")
+    assert ledger.realized_pnl == Decimal("100")
