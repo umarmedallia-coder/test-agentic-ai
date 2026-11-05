@@ -36,7 +36,7 @@ async def _load_one(
             errors=[f"{type(exc).__name__}: {exc}"],
         )
 
-    if envelope.status.value == "empty" or envelope.payload is None:
+    if envelope.status.value == "empty":
         return AgentResult(
             agent_name=name, status=AgentStatus.SKIPPED, symbol=symbol, exchange=exchange,
             conclusion="Optional source returned no observations; no values were inferred.",
@@ -52,6 +52,13 @@ async def _load_one(
                       "freshness_seconds": envelope.freshness_seconds},
             errors=envelope.warnings or [envelope.error or envelope.status.value],
             is_mock=envelope.is_mock,
+        )
+    if envelope.payload is None:
+        return AgentResult(
+            agent_name=name, status=AgentStatus.FAILED, symbol=symbol, exchange=exchange,
+            conclusion="Optional provider returned an OK envelope without a payload.",
+            findings={"feed_status": envelope.status.value, "source": envelope.source},
+            errors=["missing payload"], is_mock=envelope.is_mock,
         )
     if envelope.freshness_seconds > max_freshness_seconds:
         return AgentResult(
@@ -71,7 +78,16 @@ async def _load_one(
                       "source": envelope.source},
             errors=["symbol or exchange identity mismatch"], is_mock=envelope.is_mock,
         )
-    return analyze(payload)
+    try:
+        result = analyze(payload)
+    except Exception as exc:
+        return AgentResult(
+            agent_name=name, status=AgentStatus.FAILED, symbol=symbol, exchange=exchange,
+            conclusion="Optional snapshot failed deterministic analysis; other agents continue.",
+            errors=[f"{type(exc).__name__}: {exc}"], is_mock=envelope.is_mock,
+        )
+    result.is_mock = envelope.is_mock or payload.is_mock
+    return result
 
 
 async def load_optional_context(
