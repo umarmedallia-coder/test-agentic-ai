@@ -92,7 +92,7 @@ def evaluate_chronological(
     outcomes: list[TradeOutcome],
     *,
     policy_version: str,
-    min_samples: int = 30,
+    min_samples: int = 34,
     train_ratio: float = 0.7,
     min_test_win_rate: float = 0.5,
     max_test_drawdown: Decimal = Decimal("100000"),
