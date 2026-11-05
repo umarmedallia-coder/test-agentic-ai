@@ -239,6 +239,7 @@ class CorporateActionRecord(BaseModel):
     ratio_from: Decimal | None = Field(default=None, gt=0)
     ratio_to: Decimal | None = Field(default=None, gt=0)
     cash_amount: Decimal | None = Field(default=None, ge=0)
+    cash_in_lieu_price: Decimal | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_action_times(self):
