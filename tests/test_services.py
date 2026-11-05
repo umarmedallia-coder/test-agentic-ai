@@ -48,7 +48,9 @@ def test_news_deduplication_and_explicit_alias_mapping():
     )
     assert len(deduplicate_news([first, duplicate])) == 1
     assert map_news_to_symbols(first, {"Bharat Electronics": "BEL"}) == ["BEL"]
-    assert score_news(first).impact > 0
+    scored = score_news(first)
+    assert scored.impact_score > 0
+    assert scored.sentiment > 0
 
 
 def test_corporate_action_unknown_event_fails_closed():
