@@ -12,7 +12,7 @@ def analyze_portfolio(
     *,
     max_single_position_exposure_pct: float,
 ) -> AgentResult:
-    """Summarize marked long exposure by symbol; never invent sector classifications."""
+    """Summarize gross, net, long, short, and concentration exposure from valid marks."""
     if equity <= 0 or cash < 0 or not 0 < max_single_position_exposure_pct <= 1:
         return AgentResult(
             agent_name="Portfolio Intelligence Agent", status=AgentStatus.FAILED,
@@ -23,16 +23,24 @@ def analyze_portfolio(
 
     exposure_by_symbol: dict[str, float] = {}
     missing_marks: list[str] = []
+    long_exposure = 0.0
+    short_exposure = 0.0
     for position in positions:
         price = marks.get(position.symbol)
         if price is None or price <= 0:
             missing_marks.append(position.symbol)
             continue
+        notional = price * position.quantity
         exposure_by_symbol[position.symbol] = (
-            exposure_by_symbol.get(position.symbol, 0.0) + price * position.quantity
+            exposure_by_symbol.get(position.symbol, 0.0) + notional
         )
+        if position.direction == "long":
+            long_exposure += notional
+        else:
+            short_exposure += notional
 
-    total_exposure = sum(exposure_by_symbol.values())
+    total_exposure = long_exposure + short_exposure
+    net_exposure = long_exposure - short_exposure
     concentration = {
         symbol: value / equity for symbol, value in sorted(exposure_by_symbol.items())
     }
@@ -47,6 +55,10 @@ def analyze_portfolio(
         "unmarked_symbols": sorted(set(missing_marks)),
         "gross_exposure": round(total_exposure, 2),
         "gross_exposure_pct": round(total_exposure / equity, 6),
+        "long_exposure": round(long_exposure, 2),
+        "short_exposure": round(short_exposure, 2),
+        "net_exposure": round(net_exposure, 2),
+        "net_exposure_pct": round(net_exposure / equity, 6),
         "cash_pct": round(cash / equity, 6),
         "symbol_concentration_pct": {
             symbol: round(weight, 6) for symbol, weight in concentration.items()
