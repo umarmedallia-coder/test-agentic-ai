@@ -98,6 +98,10 @@ async def run_news_pipeline(
             # Heuristic-only output remains available; LLM interpretation is never mandatory.
             llm_error = f"{type(exc).__name__}: {exc}"
     relationships_feed = await provider.get_company_relationships(symbol)
+    related_symbols = (
+        expand_related_symbols(symbol, relationships_feed.payload, selected.evidence.observed_at)
+        if relationships_feed.status.value == "ok" else []
+    )
     mapped_impact = map_news_impact(
         selected,
         relationships_feed.payload if relationships_feed.status.value == "ok" else [],
