@@ -65,3 +65,25 @@ async def test_orchestrator_times_out_blocking_sync_agent():
     runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.01, retries=0)
     result = await runner.run_parallel({"blocking": blocking})
     assert result[0]["status"] == "timed_out"
+
+
+@pytest.mark.asyncio
+async def test_agent_circuit_breaker_opens_and_recovers():
+    calls = 0
+
+    async def broken():
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("provider unavailable")
+
+    runner = AgentOrchestrator(
+        max_parallel=1, retries=0, circuit_failure_threshold=1,
+        circuit_recovery_seconds=0.01,
+    )
+    first = await runner.run_parallel({"provider": broken})
+    second = await runner.run_parallel({"provider": broken})
+    assert first[0]["status"] == "failed"
+    assert second[0]["status"] == "circuit_open"
+    await asyncio.sleep(0.02)
+    runner.breakers["provider"].record_success()
+    assert runner.breakers["provider"].state == "closed"
