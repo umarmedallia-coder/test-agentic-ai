@@ -42,7 +42,7 @@ class MockMarketDataProvider:
     async def get_market_indices(self) -> DataEnvelope[dict[str,float]]:
         return DataEnvelope(source="mock", is_mock=True,as_of=datetime.now(timezone.utc),payload={"NIFTY 50":0.25,"BANK NIFTY":-0.1},warnings=["synthetic data"])
 
-    async def get_trading_calendar(self, day: date) -> DataEnvelope[dict[str,bool]]:
+    async def get_trading_calendar(self, day: date, exchange: str = "NSE") -> DataEnvelope[dict[str,bool]]:
         return DataEnvelope(source="mock", is_mock=True,as_of=datetime.now(timezone.utc),payload={"is_open":day.weekday()<5},warnings=["weekday-only mock calendar; exchange holidays are not modelled"])
 
     async def get_stock_universe(self, exchange: str = "NSE") -> DataEnvelope[list[str]]:
