@@ -25,7 +25,7 @@ class NewsImpact(BaseModel):
     headline: str
     symbols: list[str]
     sentiment: float = Field(ge=-1, le=1)
-    impact: float = Field(ge=-1, le=1)
+    impact_score: float = Field(ge=0, le=100)
     confidence: float = Field(ge=0, le=1)
     rationale: str
     evidence: Evidence
@@ -70,20 +70,20 @@ def score_news(item: NewsItem) -> NewsImpact:
     sentiment = (positive - negative) / matches if matches else 0.0
     # Impact estimates event materiality; sentiment measures directional language.
     magnitude = min(1.0, matches * 0.25)
-    impact = magnitude * (1 if sentiment > 0 else -1 if sentiment < 0 else 0)
+    impact_score = magnitude * 100
     confidence = min(0.85, 0.35 + matches * 0.12) if matches else 0.25
     evidence = Evidence(
         kind="news", source=item.source, observed_at=datetime.now(timezone.utc),
         published_at=item.published_at, headline=item.headline, confidence=confidence,
         url=item.url, facts={
             "positive_matches": positive, "negative_matches": negative,
-            "sentiment": sentiment, "impact_magnitude": magnitude,
+            "sentiment": sentiment, "impact_score": impact_score,
         },
     )
     return NewsImpact(
         fingerprint=fingerprint(item), headline=item.headline,
         symbols=sorted({symbol.upper() for symbol in item.symbols}),
-        sentiment=sentiment, impact=impact, confidence=confidence,
+        sentiment=sentiment, impact_score=impact_score, confidence=confidence,
         rationale="Deterministic heuristic only; not sufficient by itself to authorize a trade.",
         evidence=evidence,
     )
@@ -94,7 +94,7 @@ def build_news_signal(
     reference_price: float,
     atr: float,
     *,
-    min_abs_impact: float = 0.65,
+    min_impact_score: float = 65.0,
     min_confidence: float = 0.65,
 ):
     """Build price levels only from a supplied validated quote/ATR, never from news text."""
@@ -102,13 +102,13 @@ def build_news_signal(
 
     from app.contracts import Signal
 
-    if not impact.symbols or abs(impact.impact) < min_abs_impact:
+    if not impact.symbols or impact.impact_score < min_impact_score:
         return None
     if impact.confidence < min_confidence or reference_price <= 0 or atr <= 0:
         return None
     entry = Decimal(str(reference_price))
     volatility = Decimal(str(atr))
-    if impact.impact > 0:
+    if impact.sentiment > 0:
         direction = "long"
         stop = entry - Decimal("1.5") * volatility
         target = entry + Decimal("2.5") * volatility
