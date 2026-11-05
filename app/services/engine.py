@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.contracts import Signal
@@ -33,6 +34,8 @@ class TradingEngine:
         self.marks: dict[str, float] = {}
         self.realized_pnl = 0.0
         self.daily_realized_pnl = 0.0
+        self.daily_pnl_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        self.daily_start_equity = settings.initial_capital_inr
         self.fees_paid = 0.0
         self.equity_peak = settings.initial_capital_inr
         self._processed_intents: set[str] = set()
@@ -63,6 +66,8 @@ class TradingEngine:
         self.marks = {key: float(value) for key, value in snapshot.get("marks", {}).items()}
         self.realized_pnl = float(snapshot.get("realized_pnl", 0))
         self.daily_realized_pnl = float(snapshot.get("daily_realized_pnl", 0))
+        self.daily_pnl_date = snapshot.get("daily_pnl_date", self.daily_pnl_date)
+        self.daily_start_equity = float(snapshot.get("daily_start_equity", self.cash))
         self.fees_paid = float(snapshot.get("fees_paid", 0))
         self.equity_peak = float(snapshot.get("equity_peak", self.settings.initial_capital_inr))
         self._processed_intents = set(snapshot.get("processed_intents", []))
@@ -75,6 +80,8 @@ class TradingEngine:
             "marks": self.marks,
             "realized_pnl": self.realized_pnl,
             "daily_realized_pnl": self.daily_realized_pnl,
+            "daily_pnl_date": self.daily_pnl_date,
+            "daily_start_equity": self.daily_start_equity,
             "fees_paid": self.fees_paid,
             "equity_peak": self.equity_peak,
             "processed_intents": sorted(self._processed_intents),
@@ -142,6 +149,17 @@ class TradingEngine:
                 self.paused = False
                 self.journal.append({"type": "entries_resumed", "at": datetime.now(timezone.utc).isoformat()})
 
+    def _roll_daily_pnl(self) -> None:
+        trading_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        if trading_date != self.daily_pnl_date:
+            self.daily_pnl_date = trading_date
+            self.daily_realized_pnl = 0.0
+            self.daily_start_equity = self.equity
+
+    @property
+    def daily_pnl(self) -> float:
+        return self.equity - self.daily_start_equity
+
     def _close_triggered_positions(self, symbol: str, bar: dict) -> None:
         remaining: list[Position] = []
         for position in self.positions:
@@ -188,6 +206,7 @@ class TradingEngine:
             latest = bars[-1]
             last_price = float(latest["close"])
             self.marks[symbol] = last_price
+            self._roll_daily_pnl()
             self._close_triggered_positions(symbol, latest)
 
             if self.settings.strategy_mode != "technical":
@@ -211,7 +230,7 @@ class TradingEngine:
                     else:
                         average_volume = int(sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars)))
                         decision = self.risk.validate(
-                            intent, self.equity, self.daily_realized_pnl, len(self.positions), self.cash,
+                            intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
                             equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
                             average_volume=average_volume,
                         )
@@ -270,7 +289,8 @@ class TradingEngine:
         return {
             "state": self.state, "mode": self.settings.strategy_mode, "is_mock": True,
             "cash": self.cash, "equity": self.equity, "unrealized_pnl": self.unrealized_pnl,
-            "realized_pnl": self.realized_pnl, "fees_paid": self.fees_paid,
+            "realized_pnl": self.realized_pnl, "daily_pnl": self.daily_pnl,
+            "fees_paid": self.fees_paid,
             "positions": self.positions, "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "paused": self.paused,
             "scheduler_active": self._scheduler_thread is not None and self._scheduler_thread.is_alive(),
