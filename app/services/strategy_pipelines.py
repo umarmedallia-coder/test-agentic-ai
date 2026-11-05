@@ -49,28 +49,42 @@ async def run_news_pipeline(
             symbol=symbol, conclusion="Company identity could not be verified.",
             errors=[f"{type(exc).__name__}: {exc}"],
         ), None
+    if profile.status.value != "ok" or profile.payload is None:
+        return AgentResult(
+            agent_name="News Intelligence Agent", status=AgentStatus.FAILED,
+            symbol=symbol, conclusion="Company profile source returned no validated identity.",
+            errors=["Company profile is empty or unavailable"],
+        ), None
     aliases = {profile.payload.company_name: symbol}
-    items = [
-        NewsItem(
+    items: list[NewsItem] = []
+    unresolved_symbols: set[str] = set()
+    for record in feed.payload:
+        candidate = NewsItem(
             headline=record.headline, body=record.body, source=record.source,
-            published_at=record.published_at, url=record.url,
-            symbols=map_news_to_symbols(
-                NewsItem(
-                    headline=record.headline, body=record.body, source=record.source,
-                    published_at=record.published_at, url=record.url, symbols=record.symbols,
-                ),
-                aliases,
-            ),
+            published_at=record.published_at, url=record.url, symbols=record.symbols,
         )
-        for record in feed.payload
-    ]
+        candidates = map_news_to_symbols(candidate, aliases)
+        validated_symbols: list[str] = []
+        for candidate_symbol in candidates:
+            validation = await provider.validate_stock_symbol(candidate_symbol)
+            if validation.status.value == "ok" and validation.payload:
+                validated_symbols.append(candidate_symbol)
+            else:
+                unresolved_symbols.add(candidate_symbol)
+        items.append(NewsItem(
+            headline=record.headline, body=record.body, source=record.source,
+            published_at=record.published_at, url=record.url, symbols=validated_symbols,
+        ))
     impacts = [score_news(item) for item in deduplicate_news(items)]
     relevant = [impact for impact in impacts if symbol.upper() in impact.symbols]
     if not relevant:
         return AgentResult(
             agent_name="News Intelligence Agent", status=AgentStatus.SKIPPED,
             symbol=symbol, conclusion="No news item could be mapped to this company.",
-            findings={"deduplicated_items": len(impacts)},
+            findings={
+                "deduplicated_items": len(impacts),
+                "unresolved_symbols": sorted(unresolved_symbols),
+            },
         ), None
     relevant.sort(key=lambda item: (item.impact_score * item.confidence), reverse=True)
     selected = relevant[0]
@@ -115,6 +129,7 @@ async def run_news_pipeline(
             "sentiment": selected.sentiment, "impact_score": selected.impact_score,
             "confidence": selected.confidence,
             "headline": selected.headline, "deduplicated_items": len(impacts),
+            "unresolved_symbols": sorted(unresolved_symbols),
             "related_symbols": [mapping.model_dump(mode="json") for mapping in related_symbols],
             "affected_securities": [item.model_dump(mode="json") for item in mapped_impact.affected_securities],
             "evaluated_relationships": mapped_impact.evaluated_relationships,
