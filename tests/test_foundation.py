@@ -345,7 +345,8 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
     )
     agent = AgentResult(
         agent_name="Corporate Actions Agent", status=AgentStatus.SUCCEEDED,
-        symbol="ABC", findings={
+        symbol="ABC", conclusion="Verified corporate actions available.",
+        findings={
             "actions": [
                 split.model_dump(mode="json"),
                 dividend.model_dump(mode="json"),
