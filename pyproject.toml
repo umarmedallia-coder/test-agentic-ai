@@ -22,7 +22,8 @@ addopts = "--strict-markers"
 line-length = 100
 target-version = "py312"
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
