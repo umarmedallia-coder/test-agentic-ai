@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.agents.contracts import DiscoveryCandidate
+from app.services.optional_context import load_optional_context
 from app.agents.critic import critique_evidence
 from app.agents.fundamental import analyze_fundamentals
 from app.agents.institutional_activity import analyze_institutional_activity
@@ -629,34 +630,13 @@ class TradingEngine:
                 symbol, exchange, bars, self.policy_registry.active.parameters,
                 is_mock=history.is_mock,
             )
-            fundamental_feed = asyncio.run(self.provider.get_fundamental_snapshot(symbol, exchange))
-            if fundamental_feed.status.value == "ok" and fundamental_feed.payload is not None:
-                fundamental_agent = analyze_fundamentals(fundamental_feed.payload)
-            else:
-                fundamental_agent = AgentResult(
-                    agent_name="Fundamental Analysis Agent", status=AgentStatus.SKIPPED,
-                    symbol=symbol, exchange=exchange,
-                    conclusion="Optional fundamental snapshot is unavailable; no values were inferred.",
-                    findings={"feed_status": fundamental_feed.status.value,
-                              "source": fundamental_feed.source,
-                              "warnings": fundamental_feed.warnings},
-                    is_mock=fundamental_feed.is_mock,
+            fundamental_agent, institutional_agent = asyncio.run(
+                load_optional_context(
+                    self.provider, symbol, exchange,
+                    timeout_seconds=self.settings.agent_timeout_seconds,
+                    max_freshness_seconds=self.settings.max_market_data_freshness_seconds,
                 )
-            institutional_feed = asyncio.run(
-                self.provider.get_institutional_activity(symbol, exchange)
             )
-            if institutional_feed.status.value == "ok" and institutional_feed.payload is not None:
-                institutional_agent = analyze_institutional_activity(institutional_feed.payload)
-            else:
-                institutional_agent = AgentResult(
-                    agent_name="Institutional Activity Agent", status=AgentStatus.SKIPPED,
-                    symbol=symbol, exchange=exchange,
-                    conclusion="Optional institutional-flow snapshot is unavailable; no values were inferred.",
-                    findings={"feed_status": institutional_feed.status.value,
-                              "source": institutional_feed.source,
-                              "warnings": institutional_feed.warnings},
-                    is_mock=institutional_feed.is_mock,
-                )
             average_volume = int(
                 sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars))
             )
