@@ -197,7 +197,10 @@ async def run_corporate_actions_pipeline(
     return AgentResult(
         agent_name="Corporate Actions Agent", status=AgentStatus.SUCCEEDED,
         symbol=symbol, conclusion="Corporate-action event restrictions evaluated.",
-        findings={"blocked": blocked, "events": event_summaries},
+        findings={
+            "blocked": blocked, "events": event_summaries,
+            "actions": [record.model_dump(mode="json") for record in feed.payload],
+        },
     ), blocked
 
 
