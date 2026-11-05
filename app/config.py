@@ -40,4 +40,9 @@ class Settings(BaseSettings):
         if len(normalized) != len(set(normalized)):
             raise ValueError("watchlist symbols must be unique")
         self.watchlist = normalized
+        if self.llm_provider == "openrouter":
+            if self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip():
+                raise ValueError("LLM_API_KEY is required when LLM_PROVIDER=openrouter")
+            if self.llm_base_url.rstrip("/") == "http://localhost:11434":
+                self.llm_base_url = "https://openrouter.ai/api/v1"
         return self
