@@ -10,11 +10,11 @@ from app.services.engine import TradingEngine
 from app.services.portfolio import PortfolioLedger
 
 
-def fill(fill_id: str, side: str, quantity: int, price: str, fees: str = "1") -> PaperFill:
+def fill(fill_id: str, side: str, quantity: int, price: str, fees: str = "1", symbol: str = "ABC") -> PaperFill:
     return PaperFill(
         fill_id=fill_id,
         signal_id=f"signal-{fill_id}",
-        symbol="ABC",
+        symbol=symbol,
         side=side,
         quantity=quantity,
         price=Decimal(price),
@@ -90,7 +90,7 @@ def test_ledger_rejects_opposite_side_addition_and_wrong_cover():
     with pytest.raises(ValueError, match="opposite-side"):
         ledger.apply_buy(fill("long-entry", "buy", 1, "90"))
     with pytest.raises(ValueError, match="no open short"):
-        ledger.apply_cover(fill("bad-cover", "cover", 1, "90"))
+        ledger.apply_cover(fill("bad-cover", "cover", 1, "90", symbol="XYZ"))
 
 
 def test_fractional_split_requires_price_then_settles_long_cash_in_lieu():
