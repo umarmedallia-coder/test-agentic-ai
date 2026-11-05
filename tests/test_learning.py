@@ -13,7 +13,7 @@ from app.services.learning import (
     evaluate_candidate,
     chronological_split,
     evaluate_chronological,
-    validate_strategy_parameter_proposal,
+    validate_strategy_parameter_proposal, evaluate_outcomes,
 )
 
 
@@ -182,3 +182,19 @@ def test_paper_policy_parameters_are_deeply_immutable_and_json_serializable():
     with pytest.raises(TypeError):
         policy.parameters["ema_fast"] = 10
     assert policy.model_dump(mode="json")["parameters"] == {"ema_fast": 9.0}
+
+
+def test_learning_report_does_not_mix_policy_versions():
+    baseline = make_outcomes("baseline", 0, 3, Decimal("1"))
+    candidate = make_outcomes("candidate", 10, 2, Decimal("5"))
+    for outcome in baseline:
+        outcome.policy_version = "paper-v1"
+        outcome.strategy = "technical"
+    for outcome in candidate:
+        outcome.policy_version = "paper-v2"
+        outcome.strategy = "news"
+    report = evaluate_outcomes(baseline + candidate, policy_version="paper-v2")
+    assert report.sample_count == 2
+    assert report.net_pnl == Decimal("10")
+    empty = evaluate_outcomes(baseline + candidate, policy_version="paper-v3")
+    assert empty.sample_count == 0
