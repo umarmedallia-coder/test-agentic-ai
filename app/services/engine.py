@@ -1133,6 +1133,17 @@ class TradingEngine:
             totals["fees"] = float(totals["fees"]) + float(outcome.fees)
             totals["wins"] = int(totals["wins"]) + int(outcome.net_pnl > 0)
         attributed_net = sum(float(row["net_pnl"]) for row in strategy_totals.values())
+        sector_totals: dict[str, dict[str, float | int]] = {}
+        for outcome in self.outcomes:
+            sector_name = outcome.sector or "unclassified"
+            totals = sector_totals.setdefault(
+                sector_name, {"trades": 0, "net_pnl": 0.0, "fees": 0.0, "wins": 0},
+            )
+            totals["trades"] = int(totals["trades"]) + 1
+            totals["net_pnl"] = float(totals["net_pnl"]) + float(outcome.net_pnl)
+            totals["fees"] = float(totals["fees"]) + float(outcome.fees)
+            totals["wins"] = int(totals["wins"]) + int(outcome.net_pnl > 0)
+        attributed_sector_net = sum(float(row["net_pnl"]) for row in sector_totals.values())
         account_outcome_net = sum(float(item.net_pnl) for item in self.outcomes)
         open_trades = []
         for position in self.positions:
@@ -1167,6 +1178,12 @@ class TradingEngine:
             ],
             "strategy_attribution_net_pnl": attributed_net,
             "strategy_attribution_reconciles": abs(attributed_net - account_outcome_net) < 0.000001,
+            "sector_performance": [
+                {"sector": name, **values}
+                for name, values in sorted(sector_totals.items())
+            ],
+            "sector_attribution_net_pnl": attributed_sector_net,
+            "sector_attribution_reconciles": abs(attributed_sector_net - account_outcome_net) < 0.000001,
             "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "next_cycle_at": self.next_cycle_at,
             "paused": self.paused,
