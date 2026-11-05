@@ -456,8 +456,6 @@ def test_engine_fails_closed_on_stale_typed_historical_data(tmp_path):
 
 
 def test_engine_rejects_over_age_typed_history_even_when_provider_marks_ok(tmp_path):
-    from datetime import timedelta
-
     from app.data.mock_provider import MockMarketDataProvider
 
     class OverAgeHistoryProvider(MockMarketDataProvider):
