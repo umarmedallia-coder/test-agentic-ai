@@ -40,11 +40,11 @@ def test_typed_bar_rejects_naive_timestamp_and_invalid_range():
 def test_news_deduplication_and_explicit_alias_mapping():
     now = datetime.now(UTC)
     first = NewsItem(
-        headline="BEL wins major order", source="wire", published_at=now,
+        headline="BEL order win and profit rises", source="wire", published_at=now,
         body="Bharat Electronics",
     )
     duplicate = NewsItem(
-        headline="BEL wins major order!", source="other", published_at=now,
+        headline="BEL order win and profit rises!", source="other", published_at=now,
         symbols=["BEL"],
     )
     assert len(deduplicate_news([first, duplicate])) == 1
