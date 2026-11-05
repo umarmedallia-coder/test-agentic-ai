@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Protocol
 
+from app.agents.contracts import FundamentalSnapshot, InstitutionalSnapshot
 from app.contracts import (
     CompanyAnnouncement,
     CompanyProfile,
@@ -66,3 +67,11 @@ class MarketDataProvider(Protocol):
     async def get_company_relationships(
         self, symbol: str
     ) -> DataEnvelope[list[RelationshipEdge]]: ...
+
+    async def get_fundamental_snapshot(
+        self, symbol: str, exchange: str = "NSE"
+    ) -> DataEnvelope[FundamentalSnapshot | None]: ...
+
+    async def get_institutional_activity(
+        self, symbol: str, exchange: str = "NSE"
+    ) -> DataEnvelope[InstitutionalSnapshot | None]: ...
