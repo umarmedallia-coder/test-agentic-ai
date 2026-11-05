@@ -48,6 +48,20 @@ class PaperPolicy(BaseModel):
         }
         if unsupported:
             raise ValueError(f"unsupported policy parameters: {sorted(unsupported)}")
+        for name, value in self.parameters.items():
+            lower, upper = _ALLOWED_STRATEGY_PARAMETERS[name]
+            if not lower <= value <= upper:
+                raise ValueError(f"{name} is outside its strategy safety bounds")
+        if (
+            "ema_fast" in self.parameters and "ema_slow" in self.parameters
+            and self.parameters["ema_fast"] >= self.parameters["ema_slow"]
+        ):
+            raise ValueError("ema_fast must remain below ema_slow")
+        if (
+            "rsi_lower" in self.parameters and "rsi_upper" in self.parameters
+            and self.parameters["rsi_lower"] >= self.parameters["rsi_upper"]
+        ):
+            raise ValueError("rsi_lower must remain below rsi_upper")
         return self
 
 
@@ -84,6 +98,8 @@ class PaperPolicyRegistry:
             raise ValueError("evaluation does not match candidate policy version")
         if candidate.parent_version != self.active.version:
             raise ValueError("candidate parent must match the active policy")
+        if evaluation.baseline_version != self.active.version:
+            raise ValueError("evaluation baseline must match the active policy")
         self._history.append(candidate)
         return self.active
 
