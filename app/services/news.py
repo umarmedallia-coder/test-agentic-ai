@@ -24,6 +24,7 @@ class NewsImpact(BaseModel):
     fingerprint: str
     headline: str
     symbols: list[str]
+    sentiment: float = Field(ge=-1, le=1)
     impact: float = Field(ge=-1, le=1)
     confidence: float = Field(ge=0, le=1)
     rationale: str
@@ -65,15 +66,27 @@ def score_news(item: NewsItem) -> NewsImpact:
     text = normalize_text(f"{item.headline} {item.body}")
     positive = sum(phrase in text for phrase in _POSITIVE)
     negative = sum(phrase in text for phrase in _NEGATIVE)
-    impact = max(-1.0, min(1.0, (positive-negative)*0.35))
-    matches = positive+negative
-    confidence = min(0.85,0.35+matches*0.12) if matches else 0.25
-    evidence = Evidence(kind="news",source=item.source,observed_at=datetime.now(timezone.utc),
-        published_at=item.published_at,headline=item.headline,confidence=confidence,url=item.url,
-        facts={"positive_matches":positive,"negative_matches":negative})
-    return NewsImpact(fingerprint=fingerprint(item),headline=item.headline,
-        symbols=sorted({s.upper() for s in item.symbols}),impact=impact,confidence=confidence,
-        rationale="Keyword heuristic only; not sufficient by itself to authorize a trade.",evidence=evidence)
+    matches = positive + negative
+    sentiment = (positive - negative) / matches if matches else 0.0
+    # Impact estimates event materiality; sentiment measures directional language.
+    magnitude = min(1.0, matches * 0.25)
+    impact = magnitude * (1 if sentiment > 0 else -1 if sentiment < 0 else 0)
+    confidence = min(0.85, 0.35 + matches * 0.12) if matches else 0.25
+    evidence = Evidence(
+        kind="news", source=item.source, observed_at=datetime.now(timezone.utc),
+        published_at=item.published_at, headline=item.headline, confidence=confidence,
+        url=item.url, facts={
+            "positive_matches": positive, "negative_matches": negative,
+            "sentiment": sentiment, "impact_magnitude": magnitude,
+        },
+    )
+    return NewsImpact(
+        fingerprint=fingerprint(item), headline=item.headline,
+        symbols=sorted({symbol.upper() for symbol in item.symbols}),
+        sentiment=sentiment, impact=impact, confidence=confidence,
+        rationale="Deterministic heuristic only; not sufficient by itself to authorize a trade.",
+        evidence=evidence,
+    )
 
 
 def build_news_signal(
