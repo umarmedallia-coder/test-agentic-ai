@@ -128,7 +128,7 @@ def _strategy_decision(regime, signal, include_market=True):
     if include_market:
         results.append(AgentResult(
             agent_name="Market Intelligence Agent", status=AgentStatus.SUCCEEDED,
-            findings={"regime": regime},
+            conclusion="test market regime", findings={"regime": regime},
         ))
     return evaluate_strategy(mode="technical", horizon="intraday", results=results)
 
