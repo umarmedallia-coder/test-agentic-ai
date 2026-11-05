@@ -144,16 +144,23 @@ def analyze_technical(
         )],
         is_mock=is_mock,
     )
-    if not bullish:
+    if not bullish and not bearish:
         return result, None
     stop_distance = atr_stop_multiple * atr
-    if last <= stop_distance:
+    if bullish:
+        stop_price = last - stop_distance
+        target_price = last + stop_distance * reward_risk
+        direction = "long"
+    else:
+        stop_price = last + stop_distance
+        target_price = last - stop_distance * reward_risk
+        direction = "short"
+    if stop_price <= 0 or target_price <= 0:
         result.findings["signal"] = "neutral"
-        result.findings["rejection_reason"] = "ATR stop distance would produce a non-positive stop price"
+        result.findings["rejection_reason"] = "ATR stop/target distance would produce a non-positive price"
         return result, None
     return result, TradeIntent(
-        symbol=symbol, exchange=exchange, entry_price=last,
-        stop_price=last - stop_distance,
-        target_price=last + stop_distance * reward_risk, quantity=1,
+        symbol=symbol, exchange=exchange, direction=direction, entry_price=last,
+        stop_price=stop_price, target_price=target_price, quantity=1,
         confidence=0.5, source_agent="Technical Analysis Agent",
     )
