@@ -18,7 +18,7 @@ engine = get_engine()
 start_col, stop_col, pause_col, resume_col, cycle_col = st.columns(5)
 if start_col.button("Start", type="primary", disabled=engine.state == "running"):
     try:
-        engine.start()
+        engine.start(automatic=True)
     except Exception as exc:
         st.error(str(exc))
 if stop_col.button("Stop", disabled=engine.state != "running"):
@@ -41,7 +41,8 @@ c.metric("Equity", f"₹{snapshot['equity']:,.2f}")
 d.metric("Realized P&L", f"₹{snapshot['realized_pnl']:,.2f}")
 e.metric("Open positions", len(snapshot["positions"]))
 st.info(
-    f"Mode: {snapshot['mode']} · Data: MOCK · "
+    f"Mode: {snapshot['mode']} · Data: MOCK · Automatic scheduler: "
+    f"{engine._scheduler_thread is not None and engine._scheduler_thread.is_alive()} · "
     f"Last cycle: {snapshot['last_cycle_at'] or 'not run'}"
 )
 st.caption(
