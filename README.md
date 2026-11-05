@@ -43,11 +43,12 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Deterministic EMA 9/21, ATR 14, RSI 14 and MACD 12/26/9 technical analysis.
 - Shared risk sizing with configurable gross-exposure cap, finite-input validation, append-only JSONL journal and exclusive writer lock.
 - News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores, and evidence-backed one-hop relationship transmission (same/inverse/mixed/unknown). News signals require separately supplied quote and ATR values.
-- Corporate-action schema validation and conservative event-date entry block.
+- Corporate-action schema validation, conservative event-date entry blocks, and idempotent verified split/bonus/dividend settlement for open paper positions.
 - Paper fill simulator with fee/slippage configuration and stable per-bar intent/fill idempotency keys.
-- Decimal-based portfolio ledger wired into engine entries, exits, marks, realized/unrealized P&L, and durable snapshot recovery; corporate-action ledger operations are idempotent.
+- Decimal-based portfolio ledger wired into engine entries, exits, marks, realized/unrealized P&L, and durable snapshot recovery; corporate-action ledger operations and processed-action IDs survive restart.
 - Bounded async fan-out helper, LangGraph fan-out/fan-in graph with configured timeouts, retries and task IDs, paper outcome report, automatic watchlist scheduler and graceful scheduler drain.
 - Optional structured JSON-schema adapters for local Ollama and OpenRouter, wired into news interpretation with deterministic fallback, timeout, usage/cost capture and LLM concurrency limits; disabled by default and never used to calculate prices or indicators.
+- Paper-policy registry with immutable strategy parameters, chronological held-out evaluation, matched candidate/baseline windows, explicit engine-level promotion/rollback, and durable policy lineage; hard risk limits are not tunable.
 - Initial unit tests and GitHub Actions CI workflow.
 - Streamlit overview with a process-wide cached controller, five-second telemetry refresh and truthful status reporting for the 13-agent roster. Technical, news and corporate-action pipeline statuses are surfaced separately.
 
