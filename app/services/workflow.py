@@ -79,14 +79,6 @@ async def _strategy_node(state: dict[str, Any]) -> dict[str, Any]:
             if not is_retryable_error(exc):
                 break
     return {"results": [{
-                "name": name, "task_id": task_id, "status": "succeeded",
-                "attempts": attempt + 1, "result": result,
-            }]}
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            last_error = exc
-    return {"results": [{
         "name": name, "task_id": task_id, "status": "failed",
         "attempts": attempts,
         "error": f"{type(last_error).__name__}: {last_error}",
