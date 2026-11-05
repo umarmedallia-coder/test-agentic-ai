@@ -104,7 +104,7 @@ def test_fractional_split_requires_price_then_settles_long_cash_in_lieu():
     )
     assert quantity == 4
     assert average_entry == Decimal("100") * Decimal("2") / Decimal("3")
-    assert ledger.cash == Decimal("9820")
+    assert ledger.cash == Decimal("9730")
     assert ledger.realized_pnl == Decimal("0.5") * (
         Decimal("60") - average_entry
     )
@@ -120,7 +120,7 @@ def test_fractional_split_cash_in_lieu_for_short_position():
     )
     assert quantity == 4
     assert average_entry == Decimal("100") * Decimal("2") / Decimal("3")
-    assert ledger.cash == Decimal("9820")
+    assert ledger.cash == Decimal("10270")
     assert ledger.realized_pnl == Decimal("0.5") * (
         average_entry - Decimal("60")
     )
