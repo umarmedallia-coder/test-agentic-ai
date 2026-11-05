@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 import pytest
 
 from app.config import Settings
