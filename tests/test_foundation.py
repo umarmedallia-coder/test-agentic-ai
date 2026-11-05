@@ -60,7 +60,7 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
-        lambda symbol, exchange, bars: (agent, intent),
+        lambda symbol, exchange, bars, policy=None, **kwargs: (agent, intent),
     )
     first = TradingEngine(settings)
 
@@ -134,7 +134,7 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
     engine.positions = [Position(
         intent_id="intent-1", symbol="RELIANCE", exchange="NSE",
         direction="long", quantity=10, entry_price=100,
-        stop_price=95, target_price=110, policy_version="test",
+        stop_price=95, target_price=110, policy_version="paper-baseline-v1",
         entry_fees=1, entry_fill_id="entry-fill-1",
     )]
     engine.marks["RELIANCE"] = 100
@@ -144,7 +144,7 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
     )
     assert engine.positions == []
     assert len(engine.outcomes) == 1
-    assert engine.outcomes[0].policy_version == "test"
+    assert engine.outcomes[0].policy_version == "paper-baseline-v1"
     assert engine.outcomes[0].strategy == "unknown"
     assert engine.outcomes[0].entry_at is not None
     events = engine.journal.read_all()
@@ -172,7 +172,7 @@ def test_closed_market_calendar_blocks_new_entries(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
-        lambda symbol, exchange, bars: (agent, intent),
+        lambda symbol, exchange, bars, policy=None, **kwargs: (agent, intent),
     )
     engine = TradingEngine(Settings(journal_dir=tmp_path))
 
@@ -203,7 +203,7 @@ def test_corporate_action_restriction_blocks_technical_entry(tmp_path, monkeypat
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
-        lambda symbol, exchange, bars: (agent, intent),
+        lambda symbol, exchange, bars, policy=None, **kwargs: (agent, intent),
     )
     engine = TradingEngine(Settings(journal_dir=tmp_path))
 
@@ -251,7 +251,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     )
     monkeypatch.setattr(
         "app.services.engine.analyze_technical",
-        lambda symbol, exchange, bars: (technical_agent, technical_intent),
+        lambda symbol, exchange, bars, policy=None, **kwargs: (technical_agent, technical_intent),
     )
 
     class CombinedProvider(MockMarketDataProvider):
@@ -551,6 +551,7 @@ def test_snapshot_keeps_missing_position_marks_unavailable(tmp_path):
         symbol="RELIANCE", side="buy", quantity=1, price=Decimal("100"),
     )
     engine.ledger.apply_buy(fill)
+    engine.ledger.positions["RELIANCE"].mark = None
     engine.positions = [Position(
         intent_id="missing-mark-intent", symbol="RELIANCE", exchange="NSE",
         direction="long", quantity=1, entry_price=100, stop_price=95,
