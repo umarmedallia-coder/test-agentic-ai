@@ -18,14 +18,15 @@ def analyze_institutional_activity(snapshot: InstitutionalSnapshot, *, max_age_d
             conclusion="No FII/DII flow observations supplied.", is_mock=snapshot.is_mock)
     net = sum(value or 0.0 for value in values)
     direction = "positive" if net > 0 else "negative" if net < 0 else "neutral"
+    limitations = ["Institutional flow is contextual evidence, not proof of future price direction"]
     findings = {"fii_net_value": snapshot.fii_net_value, "dii_net_value": snapshot.dii_net_value,
         "combined_net_value": net, "flow_direction": direction,
         "delivery_pct": snapshot.delivery_pct, "volume_ratio": snapshot.volume_ratio,
         "as_of": snapshot.as_of.isoformat(), "source": snapshot.source,
-        "limitations": ["Institutional flow is contextual evidence, not proof of future price direction"]}
+        "limitations": limitations}
     return AgentResult(agent_name="Institutional Activity Agent", status=AgentStatus.SUCCEEDED,
         symbol=snapshot.symbol, exchange=snapshot.exchange,
         conclusion=f"Institutional flow is {direction}; no standalone trade instruction generated.",
         findings=findings, evidence=[Evidence(source=snapshot.source, observed_at=snapshot.as_of,
             statement=f"Reported combined institutional net flow: {net}.", provenance=snapshot.source,
-            limitations=findings["limitations"])], is_mock=snapshot.is_mock)
+            limitations=limitations)], is_mock=snapshot.is_mock)
