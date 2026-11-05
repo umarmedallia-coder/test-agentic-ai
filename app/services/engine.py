@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
@@ -389,6 +389,9 @@ class TradingEngine:
                         datetime.now(ZoneInfo("Asia/Kolkata")).date(),
                     )
                 )
+                event_blocked = event_blocked or self._apply_due_corporate_actions(
+                    action_agent, symbol, trading_date,
+                )
                 self.agents = [technical_agent, action_agent]
                 if event_blocked:
                     self.journal.append({
@@ -412,6 +415,9 @@ class TradingEngine:
                     )
                 )
                 mapping_agent = self._news_mapping_agent(news_agent, symbol, exchange)
+                event_blocked = event_blocked or self._apply_due_corporate_actions(
+                    action_agent, symbol, trading_date,
+                )
                 self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
                 if event_blocked:
                     self.journal.append({
@@ -498,6 +504,9 @@ class TradingEngine:
                     )
                 mapping_agent = self._news_mapping_agent(news_agent, symbol, exchange)
                 self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
+                action_blocked = action_blocked or self._apply_due_corporate_actions(
+                    action_agent, symbol, trading_date,
+                )
                 if action_blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
