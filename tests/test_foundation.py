@@ -99,7 +99,8 @@ def test_news_mode_skips_when_mock_feed_is_empty(tmp_path):
     engine = TradingEngine(Settings(journal_dir=tmp_path, strategy_mode="news"))
     engine.start()
     engine.run_cycle()
-    assert engine.agents[1].status.value == "skipped"
+    news_agent = next(item for item in engine.agents if item.agent_name == "News Intelligence Agent")
+    assert news_agent.status.value == "skipped"
     assert engine.positions == []
     engine.stop()
 
