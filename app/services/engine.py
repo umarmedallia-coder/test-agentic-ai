@@ -23,7 +23,7 @@ from app.services.learning import (
     CandidateEvaluation, PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
 )
 from app.services.intent_reconciliation import reconcile_intents
-from app.services.risk import RiskManager
+from app.services.risk import RiskManager, return_correlation
 from app.services.portfolio import PortfolioLedger
 from app.services.portfolio_intelligence import analyze_portfolio
 from app.services.market_intelligence import run_market_intelligence
@@ -957,9 +957,58 @@ class TradingEngine:
                                 self.marks[position.symbol] * position.quantity
                                 for position in self.positions if not position.sector
                             )
-                            decision = self.risk.validate(
-                                intent, current_equity, current_daily_pnl,
-                                len(self.positions), float(self.ledger.available_cash),
+                            correlated_exposure = 0.0
+                            correlation_findings: dict[str, float] = {}
+                            correlation_error: str | None = None
+                            # Synthetic mock returns are not suitable for estimating real correlations.
+                            if self.positions and not history.is_mock:
+                                for peer in self.positions:
+                                    try:
+                                        peer_history = asyncio.run(
+                                            self.provider.get_historical_prices(
+                                                peer.symbol, now - timedelta(days=80), now,
+                                                peer.exchange,
+                                            )
+                                        )
+                                        if (
+                                            peer_history.status.value != "ok"
+                                            or peer_history.is_mock
+                                            or peer_history.freshness_seconds
+                                                > self.settings.max_market_data_freshness_seconds
+                                            or not peer_history.payload
+                                        ):
+                                            raise ValueError(
+                                                f"reliable correlation history unavailable for {peer.symbol}"
+                                            )
+                                        peer_bars = [
+                                            item.model_dump(mode="python")
+                                            for item in peer_history.payload
+                                        ]
+                                        correlation = return_correlation(bars, peer_bars)
+                                        if correlation is None:
+                                            raise ValueError(
+                                                f"insufficient aligned returns for {peer.symbol}"
+                                            )
+                                        correlation_findings[peer.symbol] = round(correlation, 4)
+                                        if abs(correlation) >= self.settings.correlation_threshold:
+                                            correlated_exposure += (
+                                                self.marks.get(peer.symbol, 0.0) * peer.quantity
+                                            )
+                                    except Exception as exc:
+                                        correlation_error = (
+                                            f"Correlation risk unavailable for {peer.symbol}: "
+                                            f"{type(exc).__name__}: {exc}"
+                                        )
+                                        break
+                            if correlation_error:
+                                decision = RiskDecision(
+                                    accepted=False, reasons=[correlation_error],
+                                )
+                            else:
+                                decision = self.risk.validate(
+                                    intent, current_equity, current_daily_pnl,
+                                    len(self.positions), float(self.ledger.available_cash),
+                                    correlated_exposure=correlated_exposure,
                                 equity_peak=self.equity_peak,
                                 current_exposure=sum(
                                     self.marks[position.symbol] * position.quantity
@@ -967,10 +1016,10 @@ class TradingEngine:
                                 ),
                                 current_symbol_exposure=current_symbol_exposure,
                                 candidate_sector=candidate_sector,
-                                current_sector_exposure=current_sector_exposure,
-                                unclassified_exposure=unclassified_exposure,
-                                average_volume=average_volume,
-                            )
+                                    current_sector_exposure=current_sector_exposure,
+                                    unclassified_exposure=unclassified_exposure,
+                                    average_volume=average_volume,
+                                )
                     sector_evidence = []
                     if profile_feed is not None and profile_feed.payload is not None and candidate_sector:
                         sector_evidence = [Evidence(
@@ -993,6 +1042,8 @@ class TradingEngine:
                             "risk_amount": decision.risk_amount,
                             "candidate_sector": candidate_sector,
                             "sector_source": profile_feed.source if profile_feed else None,
+                            "correlated_exposure": correlated_exposure if candidate_sector else 0.0,
+                            "correlations": correlation_findings,
                         },
                         evidence=sector_evidence,
                         is_mock=profile_feed.is_mock if profile_feed else True,
