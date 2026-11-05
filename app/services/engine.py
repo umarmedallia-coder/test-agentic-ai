@@ -702,6 +702,22 @@ class TradingEngine:
             )
             self.agents.append(critic_agent)
             risk_decision: RiskDecision | None = None
+            synthesis_agent: AgentResult | None = None
+            if intent is not None and not strategy_agent.findings.get("candidate_allowed"):
+                self.journal.append({
+                    "type": "entry_rejected", "reason": "strategy policy did not authorize candidate",
+                    "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                })
+                intent = None
+            if intent is not None and critic_required and (
+                critic_agent.status != AgentStatus.SUCCEEDED
+                or critic_agent.findings.get("review_passed") is not True
+            ):
+                self.journal.append({
+                    "type": "entry_rejected", "reason": "critic review incomplete or unresolved",
+                    "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                })
+                intent = None
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
                 intent.id = self._stable_intent_id(intent, latest["timestamp"])
@@ -763,7 +779,12 @@ class TradingEngine:
                         "decision": decision.model_dump(mode="json"),
                     })
                     self._processed_intents.add(intent.id)
-                    if decision.accepted:
+                    synthesis_agent = synthesize_recommendation(
+                        strategy=strategy_agent, risk=risk_decision, intent=intent,
+                        critic=critic_agent if critic_required else None,
+                    )
+                    self.agents.append(synthesis_agent)
+                    if decision.accepted and synthesis_agent.status == AgentStatus.SUCCEEDED:
                         signal = Signal(
                             signal_id=intent.id,
                             strategy=intent.strategy, symbol=intent.symbol, exchange=intent.exchange,
@@ -797,24 +818,42 @@ class TradingEngine:
                                 "type": "paper_fill", "fill": fill.model_dump(mode="json"),
                                 "intent_id": intent.id,
                             })
-            portfolio_agent = analyze_portfolio(
-                self.positions, self.marks, self.equity, self.cash,
-                max_single_position_exposure_pct=(
-                    self.settings.max_single_position_exposure_pct
-                ),
-            )
+                    elif decision.accepted:
+                        self.journal.append({
+                            "type": "entry_rejected", "reason": "recommendation synthesis rejected candidate",
+                            "intent_id": intent.id,
+                        })
+            try:
+                current_equity = self.equity
+                portfolio_agent = analyze_portfolio(
+                    self.positions, self.marks, current_equity, self.cash,
+                    max_single_position_exposure_pct=(
+                        self.settings.max_single_position_exposure_pct
+                    ),
+                )
+            except ValueError as exc:
+                portfolio_agent = AgentResult(
+                    agent_name="Portfolio Intelligence Agent", status=AgentStatus.FAILED,
+                    conclusion="Portfolio exposure is unavailable because one or more marks are missing.",
+                    errors=[str(exc)],
+                )
             self.agents = [
                 agent for agent in self.agents
                 if agent.agent_name != "Portfolio Intelligence Agent"
             ]
             self.agents.append(portfolio_agent)
-            synthesis_agent = synthesize_recommendation(
-                strategy=strategy_agent, risk=risk_decision, intent=intent,
-                critic=critic_agent if critic_agent.status == AgentStatus.SUCCEEDED else None,
-            )
-            self.agents.append(synthesis_agent)
+            if synthesis_agent is None:
+                synthesis_agent = synthesize_recommendation(
+                    strategy=strategy_agent, risk=risk_decision, intent=intent,
+                    critic=critic_agent if critic_required else None,
+                )
+                self.agents.append(synthesis_agent)
             self.last_cycle_at = datetime.now(timezone.utc)
-            self.equity_peak = max(self.equity_peak, self.equity)
+            try:
+                self.equity_peak = max(self.equity_peak, self.equity)
+            except ValueError:
+                # Missing marks must not be converted into zero equity or a new peak.
+                pass
             self._persist()
 
     def stop(self) -> None:
