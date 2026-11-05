@@ -331,10 +331,26 @@ class TradingEngine:
                     average_volume = int(
                         sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars))
                     )
+                    self.agents.append(AgentResult(
+                        agent_name="Risk Management Agent", status=AgentStatus.RUNNING,
+                        symbol=symbol, exchange=exchange,
+                        conclusion="Applying centralized account and liquidity limits.",
+                    ))
                     decision = self.risk.validate(
                         intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
                         equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
                         average_volume=average_volume,
+                    )
+                    self.agents[-1] = AgentResult(
+                        agent_name="Risk Management Agent",
+                        status=AgentStatus.SUCCEEDED if decision.accepted else AgentStatus.FAILED,
+                        symbol=symbol, exchange=exchange,
+                        conclusion="Risk checks passed." if decision.accepted else "Risk checks rejected the entry.",
+                        findings={
+                            "approved_quantity": decision.approved_quantity,
+                            "risk_amount": decision.risk_amount,
+                        },
+                        errors=decision.reasons,
                     )
                     self.journal.append({
                         "type": "risk_decision", "intent": intent.model_dump(mode="json"),
