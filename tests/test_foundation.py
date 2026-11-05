@@ -75,7 +75,7 @@ def test_unimplemented_mode_fails_closed(tmp_path):
     engine = TradingEngine(Settings(journal_dir=tmp_path, strategy_mode="news"))
     engine.start()
     engine.run_cycle()
-    assert engine.agents[0].status.value == "unimplemented"
+    assert engine.agents[0].status.value == "skipped"
     assert engine.positions == []
     engine.stop()
 
