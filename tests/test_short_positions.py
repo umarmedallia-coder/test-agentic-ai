@@ -229,3 +229,65 @@ def test_engine_closes_entire_position_when_reverse_split_is_fully_fractional(tm
     assert engine.realized_pnl == -70
     assert engine.daily_realized_pnl == -70
     engine.stop()
+
+
+def test_engine_opens_and_restores_short_paper_position(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from app.models import AgentResult, AgentStatus, TradeIntent
+
+    settings = Settings(journal_dir=tmp_path, strategy_mode="technical")
+    engine = TradingEngine(settings)
+    short_intent = TradeIntent(
+        symbol="RELIANCE",
+        exchange="NSE",
+        direction="short",
+        entry_price=100,
+        stop_price=110,
+        target_price=80,
+        quantity=1,
+        confidence=0.9,
+        source_agent="Technical Analysis Agent",
+    )
+    technical_agent = AgentResult(
+        agent_name="Technical Analysis Agent",
+        status=AgentStatus.SUCCEEDED,
+        symbol="RELIANCE",
+        exchange="NSE",
+        conclusion="Deterministic bearish setup.",
+        findings={
+            "signal": "bearish",
+            "atr_14": 2,
+            "ema_9": 99,
+            "ema_21": 101,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.engine.analyze_technical",
+        lambda symbol, exchange, bars, policy=None, **kwargs: (technical_agent, short_intent),
+    )
+
+    async def market_open(day):
+        from app.contracts import DataEnvelope
+        return DataEnvelope(
+            source="test-calendar",
+            as_of=datetime.now(UTC),
+            payload={"is_open": True},
+        )
+
+    monkeypatch.setattr(engine.provider, "get_trading_calendar", market_open)
+    engine.start()
+    engine.run_cycle(symbol="RELIANCE", exchange="NSE")
+
+    assert len(engine.positions) == 1
+    assert engine.positions[0].direction == "short"
+    assert engine.ledger.positions["RELIANCE"].direction == "short"
+    assert engine.cash > settings.initial_capital_inr
+    engine.stop()
+
+    recovered = TradingEngine(settings)
+    recovered.start()
+    assert len(recovered.positions) == 1
+    assert recovered.positions[0].direction == "short"
+    assert recovered.ledger.positions["RELIANCE"].direction == "short"
+    recovered.stop()
