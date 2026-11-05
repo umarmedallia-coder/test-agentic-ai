@@ -67,14 +67,14 @@ async def run_news_pipeline(
             symbol=symbol, conclusion="No news item could be mapped to this company.",
             findings={"deduplicated_items": len(impacts)},
         ), None
-    relevant.sort(key=lambda item: (abs(item.impact) * item.confidence), reverse=True)
+    relevant.sort(key=lambda item: (item.impact_score * item.confidence), reverse=True)
     selected = relevant[0]
     signal = build_news_signal(selected, reference_price, atr)
     result = AgentResult(
         agent_name="News Intelligence Agent", status=AgentStatus.SUCCEEDED,
         symbol=symbol, conclusion="News impact evaluated using explicit company mapping.",
         findings={
-            "sentiment": selected.sentiment, "impact": selected.impact,
+            "sentiment": selected.sentiment, "impact_score": selected.impact_score,
             "confidence": selected.confidence,
             "headline": selected.headline, "deduplicated_items": len(impacts),
         },
