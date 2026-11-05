@@ -22,14 +22,19 @@ python -m app.cli ui
 
 The Streamlit dashboard binds to loopback at http://localhost:8501. Start acquires the local journal writer lock. Run cycle triggers one deterministic mock analysis cycle. Pause blocks new entries; Stop writes a lifecycle event and releases the lock.
 
-Headless one-cycle mode:
+Headless automatic mode (Ctrl+C performs a graceful stop):
 
 ```bash
 python -m app.cli start --mode paper
+```
 
-# One analysis cycle only
+One-cycle diagnostic mode:
+
+```bash
 python -m app.cli start --mode paper --once
 ```
+
+The UI Start button and default CLI mode run the configured watchlist automatically. The dashboard refreshes telemetry every five seconds. Pause blocks new entries while existing positions continue to be monitored.
 
 ## Implemented in this branch
 
