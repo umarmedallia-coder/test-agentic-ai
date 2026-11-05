@@ -23,17 +23,17 @@ async def run_news_pipeline(
     atr: float,
 ) -> tuple[AgentResult, TradeIntent | None]:
     feed = await provider.get_stock_news(symbol)
+    if feed.status.value != "ok" and feed.status.value != "empty":
+        return AgentResult(
+            agent_name="News Intelligence Agent", status=AgentStatus.FAILED,
+            symbol=symbol, conclusion="News feed is not usable; entries blocked.",
+            errors=[feed.error or feed.status.value],
+        ), None
     if feed.status.value == "empty" or not feed.payload:
         return AgentResult(
             agent_name="News Intelligence Agent", status=AgentStatus.SKIPPED,
             symbol=symbol, conclusion="No source news records available; no news trade signal.",
             findings={"feed_status": feed.status.value},
-        ), None
-    if feed.status.value != "ok":
-        return AgentResult(
-            agent_name="News Intelligence Agent", status=AgentStatus.FAILED,
-            symbol=symbol, conclusion="News feed is not usable; entries blocked.",
-            errors=[feed.error or feed.status.value],
         ), None
 
     try:
@@ -99,18 +99,18 @@ async def run_corporate_actions_pipeline(
     trading_day: date,
 ) -> tuple[AgentResult, bool]:
     feed = await provider.get_corporate_actions(symbol)
+    if feed.status.value != "ok" and feed.status.value != "empty":
+        return AgentResult(
+            agent_name="Corporate Actions Agent", status=AgentStatus.FAILED,
+            symbol=symbol, conclusion="Corporate-action feed unavailable; entries blocked.",
+            errors=[feed.error or feed.status.value],
+        ), True
     if feed.status.value == "empty" or not feed.payload:
         return AgentResult(
             agent_name="Corporate Actions Agent", status=AgentStatus.SKIPPED,
             symbol=symbol, conclusion="No corporate-action records returned by the source.",
             findings={"feed_status": feed.status.value},
         ), False
-    if feed.status.value != "ok":
-        return AgentResult(
-            agent_name="Corporate Actions Agent", status=AgentStatus.FAILED,
-            symbol=symbol, conclusion="Corporate-action feed unavailable; entries blocked.",
-            errors=[feed.error or feed.status.value],
-        ), True
 
     blocked = False
     event_summaries = []
