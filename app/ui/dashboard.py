@@ -57,6 +57,11 @@ def render_dashboard() -> None:
         [position.model_dump(mode="json") for position in snapshot["positions"]],
         use_container_width=True,
     )
+    st.subheader("Recent closed paper trades")
+    st.dataframe(
+        [outcome.model_dump(mode="json") for outcome in snapshot["outcomes"]],
+        use_container_width=True,
+    )
     st.subheader("Agent Activity")
     roster = [
         "Market Intelligence Agent", "Technical Analysis Agent", "Fundamental Analysis Agent",
