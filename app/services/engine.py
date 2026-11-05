@@ -19,6 +19,7 @@ from app.services.intent_reconciliation import reconcile_intents
 from app.services.risk import RiskManager
 from app.services.portfolio import PortfolioLedger
 from app.services.portfolio_intelligence import analyze_portfolio
+from app.services.market_intelligence import run_market_intelligence
 from app.services.technical import analyze_technical
 from app.services.workflow import build_strategy_graph
 from app.llm.factory import build_llm_provider
@@ -445,8 +446,12 @@ class TradingEngine:
             self._roll_daily_pnl()
             self._close_triggered_positions(symbol, latest)
 
+            market_agent = asyncio.run(run_market_intelligence(
+                self.provider,
+                max_freshness_seconds=self.settings.max_market_data_freshness_seconds,
+            ))
             mode = self.settings.strategy_mode
-            self.agents = [AgentResult(
+            self.agents = [market_agent, AgentResult(
                 agent_name="Technical Analysis Agent", status=AgentStatus.RUNNING,
                 symbol=symbol, exchange=exchange, conclusion="Calculating deterministic indicators.",
             )]
@@ -462,7 +467,7 @@ class TradingEngine:
                 event_blocked = event_blocked or self._apply_due_corporate_actions(
                     action_agent, symbol, trading_date,
                 )
-                self.agents = [technical_agent, action_agent]
+                self.agents = [market_agent, technical_agent, action_agent]
                 if event_blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
@@ -488,7 +493,7 @@ class TradingEngine:
                 event_blocked = event_blocked or self._apply_due_corporate_actions(
                     action_agent, symbol, trading_date,
                 )
-                self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
+                self.agents = [market_agent, technical_agent, news_agent, mapping_agent, action_agent]
                 if event_blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
@@ -508,7 +513,7 @@ class TradingEngine:
                 blocked = blocked or self._apply_due_corporate_actions(
                     action_agent, symbol, trading_date,
                 )
-                self.agents = [action_agent]
+                self.agents = [market_agent, action_agent]
                 if blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
@@ -517,6 +522,7 @@ class TradingEngine:
             else:
                 atr = float(technical_agent.findings.get("atr_14", 0))
                 self.agents = [
+                    market_agent,
                     technical_agent,
                     AgentResult(
                         agent_name="News Intelligence Agent", status=AgentStatus.RUNNING,
@@ -578,7 +584,7 @@ class TradingEngine:
                         errors=[action_task.get("error", "No result returned")],
                     )
                 mapping_agent = self._news_mapping_agent(news_agent, symbol, exchange)
-                self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
+                self.agents = [market_agent, technical_agent, news_agent, mapping_agent, action_agent]
                 action_blocked = action_blocked or self._apply_due_corporate_actions(
                     action_agent, symbol, trading_date,
                 )
