@@ -2,13 +2,14 @@ import math
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from app.config import Settings
 from app.models import RiskDecision, TradeIntent
 
 
 def return_correlation(
-    candidate_bars: Sequence[dict],
+    candidate_bars: Sequence[dict[str, Any]],
     peer_bars: Sequence[dict],
     *,
     minimum_observations: int = 20,
