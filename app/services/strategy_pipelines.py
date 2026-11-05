@@ -6,9 +6,11 @@ from datetime import date, datetime, timezone
 from app.contracts import CorporateActionRecord
 from app.data.contracts import MarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence, TradeIntent
+from app.llm.provider import LLMProvider, LLMProviderError
 from app.services.corporate_actions import ActionType, CorporateAction, blocks_new_entry
 from app.services.relationship_mapper import expand_related_symbols
 from app.services.news import (
+    NewsInterpretation,
     NewsItem,
     build_news_signal,
     deduplicate_news,
@@ -23,6 +25,7 @@ async def run_news_pipeline(
     symbol: str,
     reference_price: float,
     atr: float,
+    llm_provider: LLMProvider | None = None,
 ) -> tuple[AgentResult, TradeIntent | None]:
     feed = await provider.get_stock_news(symbol)
     if feed.status.value != "ok" and feed.status.value != "empty":
@@ -71,6 +74,29 @@ async def run_news_pipeline(
         ), None
     relevant.sort(key=lambda item: (item.impact_score * item.confidence), reverse=True)
     selected = relevant[0]
+    llm_interpretation = None
+    llm_usage = None
+    llm_error = None
+    if llm_provider is not None:
+        try:
+            llm_interpretation, llm_usage = await llm_provider.generate_structured(
+                system_prompt=(
+                    "Interpret the supplied news text. Separate explicit source facts from "
+                    "your interpretation. Do not invent company relationships, stock symbols, "
+                    "prices, indicators, or trade instructions. Mark uncertainty explicitly."
+                ),
+                user_payload={
+                    "headline": selected.headline,
+                    "source": selected.evidence.source,
+                    "published_at": selected.evidence.published_at.isoformat()
+                    if selected.evidence.published_at else None,
+                    "symbols": selected.symbols,
+                },
+                output_model=NewsInterpretation,
+            )
+        except Exception as exc:
+            # Heuristic-only output remains available; LLM interpretation is never mandatory.
+            llm_error = f"{type(exc).__name__}: {exc}"
     relationships_feed = await provider.get_company_relationships(symbol)
     mapped_impact = map_news_impact(
         selected,
@@ -90,6 +116,9 @@ async def run_news_pipeline(
             "evaluated_relationships": mapped_impact.evaluated_relationships,
             "rejected_relationships": mapped_impact.rejected_relationships,
             "relationship_feed_status": relationships_feed.status.value,
+            "llm_interpretation": llm_interpretation.model_dump(mode="json") if llm_interpretation else None,
+            "llm_usage": llm_usage.model_dump(mode="json") if llm_usage else None,
+            "llm_error": llm_error,
         },
         evidence=[Evidence(
             source=selected.evidence.source, observed_at=selected.evidence.observed_at,
