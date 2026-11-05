@@ -2,7 +2,7 @@ import pytest
 
 from app.config import Settings
 from app.models import TradeIntent
-from app.services.risk import RiskManager
+from app.services.risk import RiskManager, return_correlation
 from app.services.workflow import build_strategy_graph
 
 
@@ -98,3 +98,41 @@ def test_risk_manager_enforces_sector_concentration_and_classification(tmp_path)
     )
     assert not unclassified.accepted
     assert any("unclassified sector" in reason.lower() for reason in unclassified.reasons)
+
+
+def test_return_correlation_uses_timestamp_aligned_returns():
+    from datetime import UTC, datetime, timedelta
+
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    candidate = []
+    peer = []
+    inverse = []
+    for index in range(25):
+        timestamp = start + timedelta(days=index)
+        price = 100 * (1.01 ** index)
+        candidate.append({"timestamp": timestamp, "close": price})
+        peer.append({"timestamp": timestamp, "close": price * 2})
+        inverse.append({"timestamp": timestamp, "close": 100 * (0.99 ** index)})
+
+    assert return_correlation(candidate, peer) == pytest.approx(1.0)
+    assert return_correlation(candidate, inverse) == pytest.approx(-1.0)
+    assert return_correlation(candidate[:10], peer[:10]) is None
+
+
+def test_risk_manager_blocks_correlated_exposure_above_limit(tmp_path):
+    settings = Settings(
+        journal_dir=tmp_path,
+        max_correlated_exposure_pct=0.30,
+    )
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=95,
+        target_price=110, quantity=10,
+    )
+    decision = RiskManager(settings).validate(
+        intent, 100_000, 0, 1, 100_000,
+        candidate_sector="Industrials",
+        correlated_exposure=29_500,
+    )
+
+    assert not decision.accepted
+    assert any("correlated" in reason.lower() for reason in decision.reasons)
