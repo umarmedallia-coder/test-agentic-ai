@@ -29,7 +29,8 @@ def evaluate_strategy(*, mode: str, horizon: str, results: list[AgentResult],
     directions = {}
     for name in required:
         result = by_name.get(name)
-        if result is None: continue
+        if result is None:
+            continue
         direction = result.findings.get("direction") or result.findings.get("sentiment_direction")
         if name == "Technical Analysis Agent":
             direction = direction or result.findings.get("signal")
