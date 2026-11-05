@@ -174,3 +174,54 @@ class ExecutionSnapshot(BaseModel):
     unrealized_pnl: Decimal | None
     open_positions: int
     daily_loss: Decimal
+
+
+class NewsRecord(BaseModel):
+    news_id: str
+    headline: str
+    body: str = ""
+    source: str
+    published_at: datetime
+    url: str | None = None
+    symbols: list[str] = Field(default_factory=list)
+
+
+class CompanyAnnouncement(BaseModel):
+    announcement_id: str
+    symbol: str
+    title: str
+    category: str
+    announced_at: datetime
+    source: str
+    url: str | None = None
+
+
+class CorporateActionRecord(BaseModel):
+    action_id: str
+    symbol: str
+    action_type: str
+    announcement_date: datetime
+    ex_date: datetime | None = None
+    record_date: datetime | None = None
+    source: str
+    verified: bool = False
+
+
+class CompanyProfile(BaseModel):
+    symbol: str
+    company_name: str
+    sector: str | None = None
+    industry: str | None = None
+    exchange: str
+    source: str
+
+
+class RelationshipEdge(BaseModel):
+    source_symbol: str
+    target_symbol: str
+    relationship_type: str
+    evidence_ids: list[str] = Field(min_length=1)
+    source: str
+    valid_from: datetime
+    valid_until: datetime | None = None
+    confidence: float = Field(ge=0, le=1)
