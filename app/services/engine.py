@@ -368,6 +368,9 @@ class TradingEngine:
             self._scheduler_thread = None
             self.state = "stopped"
 
+    def learning_report(self):
+        return evaluate_outcomes(self.outcomes, policy_version="paper-baseline-v1")
+
     def snapshot(self) -> dict:
         return {
             "state": self.state, "mode": self.settings.strategy_mode, "is_mock": True,
@@ -375,7 +378,8 @@ class TradingEngine:
             "realized_pnl": self.realized_pnl, "daily_pnl": self.daily_pnl,
             "outcome_count": len(self.outcomes),
             "fees_paid": self.fees_paid,
-            "positions": self.positions, "agents": self.agents, "errors": self.errors,
+            "positions": self.positions, "outcomes": self.outcomes,
+            "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "paused": self.paused,
             "scheduler_active": self._scheduler_thread is not None and self._scheduler_thread.is_alive(),
         }
