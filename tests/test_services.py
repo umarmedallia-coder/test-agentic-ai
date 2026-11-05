@@ -204,7 +204,7 @@ def test_news_impact_maps_only_evidenced_relationships_and_retains_conflicts():
 def test_balanced_news_sentiment_never_creates_directional_trade():
     now = datetime.now(UTC)
     item = NewsItem(
-        headline="Company wins major order but fraud probe announced",
+        headline="Order win, profit rises, fraud probe announced",
         source="exchange", published_at=now, symbols=["ABC"],
     )
     impact = score_news(item)
