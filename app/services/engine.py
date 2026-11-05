@@ -166,6 +166,24 @@ class TradingEngine:
                 self.paused = False
                 self.journal.append({"type": "entries_resumed", "at": datetime.now(timezone.utc).isoformat()})
 
+    def _news_mapping_agent(
+        self, news_agent: AgentResult, symbol: str, exchange: str,
+    ) -> AgentResult:
+        mapped = news_agent.findings.get("affected_securities", [])
+        status = news_agent.status
+        if status == AgentStatus.SUCCEEDED and not mapped:
+            status = AgentStatus.SKIPPED
+        return AgentResult(
+            agent_name="News-to-Stock Impact Mapping Agent",
+            status=status, symbol=symbol, exchange=exchange,
+            conclusion=(
+                "Direct and evidence-backed related securities mapped."
+                if mapped else "No mapped securities available from the news feed."
+            ),
+            findings={"affected_securities": mapped},
+            errors=news_agent.errors,
+        )
+
     def _roll_daily_pnl(self) -> None:
         trading_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         if trading_date != self.daily_pnl_date:
@@ -288,7 +306,8 @@ class TradingEngine:
                         datetime.now(ZoneInfo("Asia/Kolkata")).date(),
                     )
                 )
-                self.agents = [technical_agent, news_agent, action_agent]
+                mapping_agent = self._news_mapping_agent(news_agent, symbol, exchange)
+                self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
                 if event_blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
@@ -372,7 +391,8 @@ class TradingEngine:
                         conclusion="Corporate-action task failed; combined entry blocked.",
                         errors=[action_task.get("error", "No result returned")],
                     )
-                self.agents = [technical_agent, news_agent, action_agent]
+                mapping_agent = self._news_mapping_agent(news_agent, symbol, exchange)
+                self.agents = [technical_agent, news_agent, mapping_agent, action_agent]
                 if action_blocked:
                     self.journal.append({
                         "type": "entry_blocked", "reason": "corporate_action",
