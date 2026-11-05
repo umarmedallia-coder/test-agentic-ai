@@ -53,3 +53,15 @@ async def test_orchestrator_times_out_agent():
     runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.01, retries=0)
     result = await runner.run_parallel({"slow": slow})
     assert result[0]["status"] == "timed_out"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_times_out_blocking_sync_agent():
+    import time
+
+    def blocking():
+        time.sleep(0.2)
+
+    runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.01, retries=0)
+    result = await runner.run_parallel({"blocking": blocking})
+    assert result[0]["status"] == "timed_out"
