@@ -17,8 +17,10 @@ def synthesize_recommendation(*, strategy: AgentResult, risk: RiskDecision | Non
         expected = set(strategy.findings["source_directions"].values())
         if expected and intent.direction not in expected:
             reasons.append("intent direction conflicts with strategy source evidence")
-    if critic is not None and critic.findings.get("review_passed") is False:
-        reasons.append("critic review has unresolved evidence issues")
+    if critic is not None and critic.status != AgentStatus.SUCCEEDED:
+        reasons.append("critic review did not complete successfully")
+    elif critic is not None and critic.findings.get("review_passed") is not True:
+        reasons.append("critic review has unresolved or unverified evidence issues")
     accepted = not reasons
     findings = {"decision": "paper_candidate_accepted" if accepted else "rejected_or_incomplete",
         "reasons": reasons, "strategy_policy": strategy.findings,
