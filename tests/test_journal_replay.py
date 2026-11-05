@@ -77,3 +77,74 @@ def test_recovery_replays_uncommitted_entry_and_exit_write_ahead_events(tmp_path
     assert restarted.realized_pnl == 98
     assert len(restarted.outcomes) == 1
     restarted.stop()
+
+
+def test_recovery_replays_corporate_actions_before_snapshot(tmp_path):
+    settings = Settings(journal_dir=tmp_path, initial_capital_inr=10_000)
+    crashed = TradingEngine(settings)
+    crashed.start()
+
+    opened_at = datetime(2026, 11, 5, 10, 0, tzinfo=UTC)
+    entry = PaperFill(
+        fill_id="corp-entry-fill", signal_id="corp-entry", symbol="ABC",
+        side="buy", quantity=3, price=Decimal("100"),
+        fees=Decimal("0"), filled_at=opened_at,
+    )
+    position = Position(
+        intent_id="corp-entry", symbol="ABC", exchange="NSE",
+        direction="long", quantity=3, entry_price=100,
+        stop_price=90, target_price=120, policy_version="paper-baseline-v1",
+        strategy="technical", opened_at=opened_at, entry_fees=0,
+        entry_fill_id=entry.fill_id,
+    )
+    crashed.journal.append({
+        "type": "paper_fill", "fill": entry.model_dump(mode="json"),
+        "position": position.model_dump(mode="json"),
+        "intent_id": position.intent_id,
+    })
+
+    split = {
+        "action_id": "abc-split-1", "symbol": "ABC", "action_type": "split",
+        "announcement_date": opened_at.isoformat(),
+        "ex_date": datetime(2026, 11, 6, 9, 0, tzinfo=UTC).isoformat(),
+        "source": "verified-test", "verified": True,
+        "ratio_from": "1", "ratio_to": "2",
+    }
+    dividend = {
+        "action_id": "abc-dividend-1", "symbol": "ABC", "action_type": "dividend",
+        "announcement_date": opened_at.isoformat(),
+        "ex_date": datetime(2026, 11, 6, 9, 0, tzinfo=UTC).isoformat(),
+        "source": "verified-test", "verified": True, "cash_amount": "2",
+    }
+    crashed.journal.append({
+        "type": "corporate_action_applied", "action_id": split["action_id"],
+        "symbol": "ABC", "action_type": "split", "record": split,
+    })
+    crashed.journal.append({
+        "type": "corporate_action_applied", "action_id": dividend["action_id"],
+        "symbol": "ABC", "action_type": "dividend", "record": dividend,
+    })
+    crashed.journal.release()
+
+    recovered = TradingEngine(settings)
+    recovered.start()
+    assert len(recovered.positions) == 1
+    assert recovered.positions[0].quantity == 6
+    assert recovered.positions[0].entry_price == 50
+    assert recovered.positions[0].stop_price == 45
+    assert recovered.positions[0].target_price == 60
+    assert recovered.ledger.positions["ABC"].quantity == 6
+    assert recovered.cash == 9_712
+    assert recovered.realized_pnl == 12
+    assert recovered.daily_realized_pnl == 12
+    assert recovered.processed_corporate_actions == {
+        "abc-split-1", "abc-dividend-1",
+    }
+    recovered.stop()
+
+    restarted = TradingEngine(settings)
+    restarted.start()
+    assert restarted.positions[0].quantity == 6
+    assert restarted.cash == 9_712
+    assert restarted.realized_pnl == 12
+    restarted.stop()
