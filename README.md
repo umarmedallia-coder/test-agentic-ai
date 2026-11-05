@@ -45,22 +45,22 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores, and evidence-backed one-hop relationship transmission (same/inverse/mixed/unknown). News signals require separately supplied quote and ATR values.
 - Corporate-action schema validation and conservative event-date entry block.
 - Paper fill simulator with fee/slippage configuration and idempotent signal key.
-- Decimal-based portfolio ledger with mark-to-market and duplicate-fill protection.
+- Decimal-based portfolio ledger wired into engine entries, exits, marks, realized/unrealized P&L, and durable snapshot recovery; corporate-action ledger operations are idempotent.
 - Bounded async fan-out helper, LangGraph fan-out/fan-in graph, paper outcome report, automatic watchlist scheduler and graceful scheduler drain.
-- Optional structured JSON-schema adapters for local Ollama and OpenRouter; disabled by default and not used to calculate prices or indicators.
+- Optional structured JSON-schema adapters for local Ollama and OpenRouter, wired into news interpretation with deterministic fallback, timeout, usage/cost capture and LLM concurrency limits; disabled by default and never used to calculate prices or indicators.
 - Initial unit tests and GitHub Actions CI workflow.
 - Streamlit overview with a process-wide cached controller, five-second telemetry refresh and truthful status reporting for the 13-agent roster. Technical, news and corporate-action pipeline statuses are surfaced separately.
 
 ## Known incomplete requirements
 
 This branch is **not yet the completed plan**. In particular:
-- Engine still uses the legacy mock OHLCV adapter; the new typed provider and Decimal portfolio ledger are not yet wired end-to-end. Engine positions are restored from journal snapshots, but event-by-event reconstruction is not complete.
+- Engine still uses the legacy mock OHLCV adapter rather than the canonical typed OHLCV provider. Portfolio accounting uses the Decimal ledger; positions and ledger state restore from journal snapshots, but event-by-event journal reconstruction is not implemented.
 - No complete event-by-event journal replay, short-position lifecycle, or recovery from every possible crash point. Long paper exits use stop-first handling when both stop and target occur in one OHLC bar.
 - LangGraph fan-out/fan-in is used by combined mode to run news and corporate-action pipelines concurrently, with configured concurrency caps. The graph is not yet the primary execution graph for every strategy.
-- Technical and news modes both pass through corporate-action restrictions; combined mode additionally requires matching technical/news direction and a successful unblocked corporate-action feed. Weighted evidence attribution, multi-symbol conflict reconciliation and a complete news-to-stock relationship graph remain incomplete. Split/dividend calculations are available in the Decimal portfolio ledger, but the engine does not yet automatically apply source events to open positions or journal entitlement cashflows.
+- Technical and news modes both pass through corporate-action restrictions; combined mode additionally requires matching technical/news direction and a successful unblocked corporate-action feed. News mapping supports direct symbol/alias validation and evidence-backed one-hop relationship transmission. Multi-source attribution, multi-symbol conflict reconciliation, unresolved entity workflows and full supplier/customer/commodity exposure validation remain incomplete. Split/dividend calculations are available in the ledger, but the engine does not yet automatically apply verified source events to open positions or journal entitlement cashflows.
 - Risk management has per-trade sizing, open-position, daily-loss, drawdown, gross-exposure, lot-size and volume-participation checks, but still needs full exchange-calendar/event integration, sector/correlation exposure and more comprehensive daily P&L controls.
 - Scheduler and process-wide Streamlit controller are implemented; the OS journal lock prevents a second process from becoming a writer. Circuit breakers, robust cancellation of every in-flight provider call and browser-level multi-tab acceptance tests remain incomplete.
-- Ollama/OpenRouter adapters are not yet wired into the news interpretation pipeline. Trade outcomes are persisted and summarized, but chronological train/test evaluation, policy versioning/rollback, and UI/browser acceptance tests remain incomplete.
+- Ollama/OpenRouter adapters are wired into optional news interpretation. Trade outcomes are persisted and summarized, but chronological train/test evaluation, policy versioning/rollback, and browser-level multi-tab/disconnect acceptance tests remain incomplete.
 - Agent roster names are not proof that those agents exist. Unimplemented agents must remain visibly unimplemented.
 
 Mock data is synthetic and cannot establish strategy accuracy or profitability. No return target is promised. Live trading remains deliberately absent. Do not use this branch for financial decisions until critical risk, accounting, persistence and lifecycle acceptance tests pass.
