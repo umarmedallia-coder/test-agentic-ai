@@ -49,6 +49,9 @@ def test_chronological_candidate_evaluation_and_paper_policy_rollback():
         evaluation,
     )
     assert registry.active.version == "paper-v2"
+    recovered = PaperPolicyRegistry.from_snapshot(registry.snapshot())
+    assert recovered.active.version == "paper-v2"
+    assert recovered.versions == ("paper-v1", "paper-v2")
     assert registry.rollback().version == "paper-v1"
 
 
