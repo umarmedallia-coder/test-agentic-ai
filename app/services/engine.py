@@ -941,7 +941,10 @@ class TradingEngine:
                                 intent, current_equity, current_daily_pnl,
                                 len(self.positions), self.cash,
                                 equity_peak=self.equity_peak,
-                                current_exposure=sum(\n                                    self.marks[position.symbol] * position.quantity\n                                    for position in self.positions if position.symbol in self.marks\n                                ),
+                                current_exposure=sum(
+                                    self.marks[position.symbol] * position.quantity
+                                    for position in self.positions if position.symbol in self.marks
+                                ),
                                 current_symbol_exposure=current_symbol_exposure,
                                 candidate_sector=candidate_sector,
                                 current_sector_exposure=current_sector_exposure,
