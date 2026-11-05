@@ -117,7 +117,7 @@ def _strategy_decision(regime, signal, include_market=True):
     results = [
         AgentResult(
             agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
-            findings={"signal": signal},
+            conclusion="test technical signal", findings={"signal": signal},
         ),
         AgentResult(
             agent_name="Corporate Actions Agent", status=AgentStatus.SKIPPED,
