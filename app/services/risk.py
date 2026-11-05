@@ -1,3 +1,5 @@
+import math
+
 from app.config import Settings
 from app.models import RiskDecision, TradeIntent
 
@@ -23,9 +25,18 @@ class RiskManager:
         lot_size: int = 1,
     ) -> RiskDecision:
         reasons: list[str] = []
+        numeric_inputs = [equity, daily_pnl, available_cash, current_exposure]
+        if equity_peak is not None:
+            numeric_inputs.append(equity_peak)
+        if not all(math.isfinite(value) for value in numeric_inputs):
+            return RiskDecision(
+                accepted=False, reasons=["Risk inputs must be finite numeric values"],
+            )
         if equity <= 0:
             reasons.append("Account equity is not positive")
             return RiskDecision(accepted=False, reasons=reasons)
+        if available_cash < 0 or current_exposure < 0:
+            reasons.append("Available cash and current exposure cannot be negative")
         if open_positions >= self.settings.max_open_positions:
             reasons.append("Maximum open positions reached")
         if daily_pnl <= -(equity * self.settings.max_daily_loss_pct):
@@ -34,8 +45,9 @@ class RiskManager:
             drawdown = max(0.0, (equity_peak - equity) / equity_peak)
             if drawdown >= self.settings.max_drawdown_pct:
                 reasons.append("Maximum account drawdown reached")
-        if current_exposure >= equity:
-            reasons.append("Portfolio gross exposure is already at or above equity")
+        exposure_limit = equity * self.settings.max_gross_exposure_pct
+        if current_exposure >= exposure_limit:
+            reasons.append("Portfolio gross exposure limit is already reached")
         if lot_size < 1:
             reasons.append("Lot size must be positive")
         unit_risk = abs(intent.entry_price - intent.stop_price)
@@ -48,7 +60,7 @@ class RiskManager:
         notional = intent.entry_price * quantity
         if notional > available_cash:
             reasons.append("Insufficient available cash")
-        if current_exposure + notional > equity:
+        if current_exposure + notional > exposure_limit:
             reasons.append("Portfolio gross exposure limit would be exceeded")
         if average_volume is not None:
             if average_volume <= 0:
