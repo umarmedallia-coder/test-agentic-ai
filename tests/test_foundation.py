@@ -1,7 +1,7 @@
 import pytest
 
 from app.config import Settings
-from app.models import TradeIntent
+from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.journal import JournalError, JsonlJournal
 from app.services.risk import RiskManager
@@ -43,18 +43,30 @@ def test_engine_start_stop_and_cycle(tmp_path):
     assert engine.state == "stopped"
 
 
-def test_engine_restores_open_positions_after_restart(tmp_path):
+def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     settings = Settings(journal_dir=tmp_path)
+    intent = TradeIntent(
+        symbol="RELIANCE", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    agent = AgentResult(
+        agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
+        symbol="RELIANCE", conclusion="test signal",
+    )
+    monkeypatch.setattr(
+        "app.services.engine.analyze_technical",
+        lambda symbol, exchange, bars: (agent, intent),
+    )
     first = TradingEngine(settings)
     first.start()
     first.run_cycle()
-    saved_positions = len(first.positions)
+    assert len(first.positions) == 1
     saved_cash = first.cash
     first.stop()
 
     second = TradingEngine(settings)
     second.start()
-    assert len(second.positions) == saved_positions
+    assert len(second.positions) == 1
     assert second.cash == saved_cash
     second.stop()
 
