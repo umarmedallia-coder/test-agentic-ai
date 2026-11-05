@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from decimal import Decimal
 
 import pytest
@@ -16,7 +16,7 @@ def test_typed_bar_rejects_naive_timestamp_and_invalid_range():
         OHLCVBar(timestamp=datetime.now(),symbol="ABC",open=Decimal(10),high=Decimal(9),
                  low=Decimal(8),close=Decimal(9),volume=100)
     with pytest.raises(ValueError):
-        OHLCVBar(timestamp=datetime.now(timezone.utc),symbol="ABC",open=Decimal(10),
+        OHLCVBar(timestamp=datetime.now(UTC),symbol="ABC",open=Decimal(10),
                  high=Decimal(7),low=Decimal(8),close=Decimal(9),volume=100)
 
 
