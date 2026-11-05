@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 from statistics import mean
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.contracts import TradeOutcome
 
@@ -31,7 +32,16 @@ class PaperPolicy(BaseModel):
     model_config = ConfigDict(frozen=True)
     version: str
     parent_version: str | None = None
-    parameters: dict[str, float] = Field(default_factory=dict)
+    parameters: Mapping[str, float] = Field(default_factory=dict)
+
+    @field_validator("parameters", mode="after")
+    @classmethod
+    def freeze_parameters(cls, value: Mapping[str, float]) -> Mapping[str, float]:
+        return MappingProxyType(dict(value))
+
+    @field_serializer("parameters")
+    def serialize_parameters(self, value: Mapping[str, float]) -> dict[str, float]:
+        return dict(value)
 
     @model_validator(mode="after")
     def reject_hard_risk_changes(self):
@@ -99,6 +109,8 @@ class PaperPolicyRegistry:
         policies = [PaperPolicy.model_validate(item) for item in snapshot]
         if not policies:
             raise ValueError("policy snapshot cannot be empty")
+        if len({policy.version for policy in policies}) != len(policies):
+            raise ValueError("policy history contains duplicate versions")
         for previous, current in zip(policies, policies[1:]):
             if current.parent_version != previous.version:
                 raise ValueError("policy history contains a broken parent chain")
