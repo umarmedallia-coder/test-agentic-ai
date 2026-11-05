@@ -536,3 +536,26 @@ def test_engine_exposes_portfolio_intelligence_agent_each_cycle(tmp_path):
     assert agent.status in {AgentStatus.SUCCEEDED, AgentStatus.FAILED}
     assert "gross_exposure_pct" in agent.findings
     engine.stop()
+
+
+def test_snapshot_keeps_missing_position_marks_unavailable(tmp_path):
+    from app.models import Position
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    fill = PaperFill(
+        fill_id="missing-mark-entry", signal_id="missing-mark-intent",
+        symbol="RELIANCE", side="buy", quantity=1, price=Decimal("100"),
+    )
+    engine.ledger.apply_buy(fill)
+    engine.positions = [Position(
+        intent_id="missing-mark-intent", symbol="RELIANCE", exchange="NSE",
+        direction="long", quantity=1, entry_price=100, stop_price=95,
+        target_price=110, policy_version="test", entry_fill_id=fill.fill_id,
+    )]
+    snapshot = engine.snapshot()
+    assert snapshot["equity"] is None
+    assert snapshot["daily_pnl"] is None
+    assert snapshot["open_trades"][0]["mark_status"] == "missing"
+    assert snapshot["open_trades"][0]["unrealized_pnl"] is None
+    engine.stop()
