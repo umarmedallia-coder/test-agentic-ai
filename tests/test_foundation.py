@@ -292,7 +292,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     ))
     engine.provider = CombinedProvider()
     engine.start()
-    engine.run_cycle()
+    engine.run_cycle(symbol="BEL")
 
     assert len(engine.positions) == 1, {
         "agents": [agent.model_dump(mode="json") for agent in engine.agents],
