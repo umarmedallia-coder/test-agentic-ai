@@ -42,7 +42,7 @@ def test_short_position_partial_cover_allocates_entry_fees_proportionally():
     ledger.apply_short(fill("short-entry", "short", 10, "100", "2"))
 
     realized = ledger.apply_cover(fill("partial-cover", "cover", 4, "90", "1"))
-    assert realized == Decimal("37.2")
+    assert realized == Decimal("38.2")
     position = ledger.positions["ABC"]
     assert position.direction == "short"
     assert position.quantity == 6
