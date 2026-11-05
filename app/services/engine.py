@@ -31,6 +31,7 @@ class TradingEngine:
         self.data = MockMarketData()
         self.provider = MockMarketDataProvider()
         self.llm_provider = build_llm_provider(settings)
+        self.llm_provider = build_llm_provider(settings)
         self.journal = JsonlJournal(settings.journal_dir)
         self.risk = RiskManager(settings)
         self.broker = PaperBroker()
