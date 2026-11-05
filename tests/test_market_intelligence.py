@@ -4,7 +4,8 @@ import pytest
 
 from app.contracts import DataEnvelope
 from app.data.mock_provider import MockMarketDataProvider
-from app.models import AgentStatus
+from app.models import AgentResult, AgentStatus
+from app.agents.strategy import evaluate_strategy
 from app.services.market_intelligence import run_market_intelligence
 
 
@@ -110,3 +111,32 @@ async def test_engine_cycle_publishes_market_intelligence_agent(tmp_path):
     }
     assert expected_agents.issubset(agents)
     engine.stop()
+
+
+def _strategy_decision(regime, signal, include_market=True):
+    results = [
+        AgentResult(
+            agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
+            findings={"signal": signal},
+        ),
+        AgentResult(
+            agent_name="Corporate Actions Agent", status=AgentStatus.SKIPPED,
+            findings={"feed_status": "empty"},
+        ),
+    ]
+    if include_market:
+        results.append(AgentResult(
+            agent_name="Market Intelligence Agent", status=AgentStatus.SUCCEEDED,
+            findings={"regime": regime},
+        ))
+    return evaluate_strategy(mode="technical", horizon="intraday", results=results)
+
+
+def test_strategy_gates_long_and_short_signals_against_market_regime():
+    assert _strategy_decision("risk_on", "bullish").findings["candidate_allowed"] is True
+    assert _strategy_decision("risk_off", "bullish").findings["candidate_allowed"] is False
+    assert _strategy_decision("risk_off", "bearish").findings["candidate_allowed"] is True
+    assert _strategy_decision("risk_on", "bearish").findings["candidate_allowed"] is False
+    missing = _strategy_decision("mixed_or_unclear", "bullish", include_market=False)
+    assert missing.findings["candidate_allowed"] is False
+    assert missing.findings["reason"] == "required source missing"
