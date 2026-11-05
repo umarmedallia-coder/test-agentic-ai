@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     max_gross_exposure_pct: float = Field(default=0.80, gt=0, le=1)
     max_single_position_exposure_pct: float = Field(default=0.25, gt=0, le=1)
     max_sector_exposure_pct: float = Field(default=0.40, gt=0, le=1)
+    max_correlated_exposure_pct: float = Field(default=0.65, gt=0, le=1)
+    correlation_threshold: float = Field(default=0.75, gt=0, le=1)
     max_correlated_exposure_pct: float = Field(default=0.50, gt=0, le=1)
     correlation_threshold: float = Field(default=0.75, gt=0, le=1)
     cycle_interval_seconds: int = Field(default=60, ge=5, le=3600)
