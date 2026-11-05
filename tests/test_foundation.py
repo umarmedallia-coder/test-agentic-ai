@@ -78,3 +78,19 @@ def test_unimplemented_mode_fails_closed(tmp_path):
     assert engine.agents[0].status.value == "unimplemented"
     assert engine.positions == []
     engine.stop()
+
+
+def test_automatic_scheduler_runs_and_drains_on_stop(tmp_path, monkeypatch):
+    from threading import Event
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path, cycle_interval_seconds=5))
+    cycle_ran = Event()
+
+    def fake_cycle(symbol="RELIANCE", exchange="NSE"):
+        cycle_ran.set()
+
+    monkeypatch.setattr(engine, "run_cycle", fake_cycle)
+    engine.start(automatic=True)
+    assert cycle_ran.wait(timeout=2)
+    engine.stop()
+    assert not engine.snapshot()["scheduler_active"]
