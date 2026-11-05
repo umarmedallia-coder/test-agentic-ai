@@ -242,8 +242,6 @@ class TradingEngine:
                     position.entry_price = float(average_entry)
                     position.stop_price *= factor
                     position.target_price *= factor
-                    if position.mark is not None:
-                        position.mark *= factor
                     if record.symbol in self.marks:
                         self.marks[record.symbol] *= factor
                         self.ledger.mark(
