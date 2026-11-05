@@ -41,6 +41,7 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Validated runtime configuration and foundational typed contracts.
 - Canonical typed OHLCV, quote, calendar, news, announcement, corporate-action, company-profile and relationship provider contracts; deterministic mock adapter carries explicit source and mock provenance, and unsupported mock feeds return EMPTY status.
 - Deterministic EMA 9/21, ATR 14, RSI 14 and MACD 12/26/9 technical analysis.
+- Market Intelligence Agent retrieves benchmark returns and labels risk-on/risk-off/mixed context only when the required NIFTY and BANK NIFTY observations agree; stale, unavailable and non-finite data fail closed. It never generates a trade intent.
 - Shared risk sizing with configurable gross and per-symbol exposure caps, finite-input validation, append-only JSONL journal and exclusive writer lock.
 - Portfolio Intelligence Agent computes marked gross exposure, cash ratio, per-symbol concentration and missing-mark diagnostics; single-symbol concentration is enforced by the central risk gate.
 - News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores, and evidence-backed one-hop relationship transmission (same/inverse/mixed/unknown). News signals require separately supplied quote and ATR values.
@@ -51,7 +52,7 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Optional structured JSON-schema adapters for local Ollama and OpenRouter, wired into news interpretation with deterministic fallback, timeout, usage/cost capture and LLM concurrency limits; disabled by default and never used to calculate prices or indicators.
 - Paper-policy registry with immutable strategy parameters, chronological held-out evaluation, matched candidate/baseline windows, explicit engine-level promotion/rollback, and durable policy lineage; hard risk limits are not tunable.
 - Initial unit tests and GitHub Actions CI workflow.
-- Streamlit overview with a process-wide cached controller, five-second telemetry refresh and truthful status reporting for the 13-agent roster. Technical, news and corporate-action pipeline statuses are surfaced separately.
+- Streamlit overview with a process-wide cached controller, five-second telemetry refresh and truthful status reporting for the 13-agent roster. Market-regime, technical, news, corporate-action and portfolio-intelligence statuses are surfaced separately.
 
 ## Known incomplete requirements
 
@@ -63,7 +64,7 @@ This branch is **not yet the completed plan**. In particular:
 - Risk management has per-trade sizing, open-position, daily-loss, drawdown, configurable gross-exposure, lot-size, finite-input and volume-participation checks, but still needs authoritative exchange-calendar integration, sector/correlation exposure and more comprehensive daily P&L controls.
 - Scheduler and process-wide Streamlit controller are implemented; the OS journal lock prevents a second process from becoming a writer. Circuit breakers, robust cancellation of every in-flight provider call and browser-level multi-tab acceptance tests remain incomplete.
 - Ollama/OpenRouter adapters are wired into optional news interpretation. Trade outcomes and policy history are persisted; leakage-safe chronological evaluation, matched-window baseline comparison, bounded strategy-only parameter proposals, and engine-level paper-only versioned promotion/rollback are implemented. Automated candidate generation and a dashboard control for policy promotion remain unwired. Browser-level multi-tab/disconnect acceptance tests remain incomplete.
-- Agent roster names are not proof that those agents exist. Unimplemented agents must remain visibly unimplemented.
+- Market Intelligence, Technical Analysis, News Intelligence, Corporate Actions, Portfolio Intelligence and Risk Management have executable paths. Fundamental Analysis, Institutional Activity, Stock Discovery, Strategy, Debate/Critic and Recommendation Synthesis are still unimplemented; the roster must continue to show them honestly.
 
 Mock data is synthetic and cannot establish strategy accuracy or profitability. No return target is promised. Live trading remains deliberately absent. Do not use this branch for financial decisions until critical risk, accounting, persistence and lifecycle acceptance tests pass.
 
