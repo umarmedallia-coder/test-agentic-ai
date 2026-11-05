@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -257,6 +257,7 @@ class RelationshipEdge(BaseModel):
     source_symbol: str
     target_symbol: str
     relationship_type: str
+    transmission: Literal["same", "inverse", "mixed", "unknown"] = "unknown"
     evidence_ids: list[str] = Field(min_length=1)
     source: str
     valid_from: datetime
