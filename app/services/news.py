@@ -234,3 +234,13 @@ def map_news_impact(
         evaluated_relationships=evaluated,
         rejected_relationships=rejected,
     )
+
+
+class NewsInterpretation(BaseModel):
+    """Unverified LLM interpretation kept separate from source facts and deterministic scores."""
+    event_category: str
+    extracted_source_facts: list[str] = Field(default_factory=list)
+    interpretation: str
+    mentioned_entities: list[str] = Field(default_factory=list)
+    horizon: str
+    risk_flags: list[str] = Field(default_factory=list)
