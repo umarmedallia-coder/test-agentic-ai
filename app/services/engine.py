@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
