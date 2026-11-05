@@ -97,6 +97,13 @@ class Evidence(BaseModel):
     headline: str | None = None
     facts: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_relationship_times(self):
+        for value in (self.valid_from, self.valid_until):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("relationship timestamps must be timezone-aware")
+        return self
     url: str | None = None
 
     @model_validator(mode="after")
@@ -185,6 +192,12 @@ class NewsRecord(BaseModel):
     url: str | None = None
     symbols: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_published_at(self):
+        if self.published_at.tzinfo is None or self.published_at.utcoffset() is None:
+            raise ValueError("published_at must be timezone-aware")
+        return self
+
 
 class CompanyAnnouncement(BaseModel):
     announcement_id: str
@@ -194,6 +207,12 @@ class CompanyAnnouncement(BaseModel):
     announced_at: datetime
     source: str
     url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_announcement_time(self):
+        if self.announced_at.tzinfo is None or self.announced_at.utcoffset() is None:
+            raise ValueError("announced_at must be timezone-aware")
+        return self
 
 
 class CorporateActionRecord(BaseModel):
@@ -208,6 +227,13 @@ class CorporateActionRecord(BaseModel):
     ratio_from: Decimal | None = Field(default=None, gt=0)
     ratio_to: Decimal | None = Field(default=None, gt=0)
     cash_amount: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_action_times(self):
+        for value in (self.announcement_date, self.ex_date, self.record_date):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("corporate-action timestamps must be timezone-aware")
+        return self
 
 
 class CompanyProfile(BaseModel):
