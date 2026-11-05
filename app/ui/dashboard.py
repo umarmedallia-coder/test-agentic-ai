@@ -52,7 +52,7 @@ if engine.state != "running":
         )
 
 if page == "Overview":
-    start_col, stop_col, pause_col, resume_col, cycle_col = st.columns(5)
+    start_col, stop_col, pause_col, resume_col, cycle_col, discover_col = st.columns(6)
     if start_col.button("Start", type="primary", disabled=engine.state == "running"):
         try:
             engine.start(automatic=True)
@@ -72,6 +72,15 @@ if page == "Overview":
             engine.run_cycle()
         except Exception as exc:
             st.error(f"Cycle failed: {exc}")
+    if discover_col.button("Discover universe", disabled=engine.state != "running"):
+        try:
+            result = engine.run_stock_discovery()
+            st.success(
+                f"Scanned {result.findings.get('scanned_count', 0)} symbols; "
+                f"{result.findings.get('eligible_count', 0)} candidates passed filters."
+            )
+        except Exception as exc:
+            st.error(f"Discovery failed: {exc}")
 
     @st.fragment(run_every="5s")
     def render_overview() -> None:
