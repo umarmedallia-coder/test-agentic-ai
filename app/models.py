@@ -70,6 +70,9 @@ class TradeIntent(StrictModel):
     quantity: int = Field(gt=0)
     strategy: str = "technical"
     policy_version: str = "technical-v1"
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+    source_agent: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
