@@ -15,10 +15,14 @@ def discover_stocks(candidates: list[DiscoveryCandidate], *, min_turnover: float
     for item in candidates:
         reasons = []
         age = (now - item.data_as_of).total_seconds()
-        if age < 0 or age > max_age_hours * 3600: reasons.append("stale_or_future_data")
-        if item.average_daily_turnover < min_turnover: reasons.append("insufficient_turnover")
-        if item.atr_pct > max_atr_pct: reasons.append("volatility_above_limit")
-        if item.trend_direction not in {"bullish", "bearish"}: reasons.append("no_directional_trend")
+        if age < 0 or age > max_age_hours * 3600:
+            reasons.append("stale_or_future_data")
+        if item.average_daily_turnover < min_turnover:
+            reasons.append("insufficient_turnover")
+        if item.atr_pct > max_atr_pct:
+            reasons.append("volatility_above_limit")
+        if item.trend_direction not in {"bullish", "bearish"}:
+            reasons.append("no_directional_trend")
         if reasons:
             rejected[item.symbol] = reasons
             continue
