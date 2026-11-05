@@ -2,7 +2,10 @@ from decimal import Decimal
 
 import pytest
 
+from app.config import Settings
 from app.contracts import PaperFill
+from app.models import Position
+from app.services.engine import TradingEngine
 from app.services.portfolio import PortfolioLedger
 
 
@@ -124,3 +127,38 @@ def test_fractional_split_cash_in_lieu_for_short_position():
     assert ledger.realized_pnl == Decimal("0.5") * (
         average_entry - Decimal("60")
     )
+
+
+def test_engine_monitors_and_covers_short_position_with_adverse_stop_first(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    entry = fill("engine-short-entry", "short", 10, "100", "0")
+    engine.ledger.apply_short(entry)
+    engine.positions = [Position(
+        intent_id="engine-short-intent",
+        symbol="ABC",
+        exchange="NSE",
+        direction="short",
+        quantity=10,
+        entry_price=100,
+        stop_price=110,
+        target_price=80,
+        policy_version="paper-baseline-v1",
+        strategy="test",
+        entry_fill_id=entry.fill_id,
+    )]
+    engine.marks["ABC"] = 100
+    engine.ledger.mark("ABC", Decimal("100"))
+
+    # Both levels trade inside this OHLC bar; the adverse stop must win.
+    engine._close_triggered_positions("ABC", {"low": 79, "high": 111})
+
+    assert engine.positions == []
+    assert len(engine.outcomes) == 1
+    outcome = engine.outcomes[0]
+    assert outcome.reason == "stop_loss"
+    assert outcome.exit_price > Decimal("110")
+    assert outcome.gross_pnl < 0
+    assert outcome.net_pnl == outcome.gross_pnl - outcome.fees
+    assert engine.ledger.positions == {}
+    engine.stop()
