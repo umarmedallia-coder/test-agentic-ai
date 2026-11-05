@@ -121,6 +121,7 @@ def _strategy_decision(regime, signal, include_market=True):
         ),
         AgentResult(
             agent_name="Corporate Actions Agent", status=AgentStatus.SKIPPED,
+            conclusion="not selected for this strategy mode",
             findings={"feed_status": "empty"},
         ),
     ]
