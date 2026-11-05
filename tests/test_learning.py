@@ -175,3 +175,10 @@ def test_engine_rejects_unvalidated_policy_promotion(tmp_path):
         engine.promote_paper_policy(candidate, rejected)
     assert engine.policy_registry.active.version == "paper-baseline-v1"
     engine.stop()
+
+
+def test_paper_policy_parameters_are_deeply_immutable_and_json_serializable():
+    policy = PaperPolicy(version="paper-v1", parameters={"ema_fast": 9})
+    with pytest.raises(TypeError):
+        policy.parameters["ema_fast"] = 10
+    assert policy.model_dump(mode="json")["parameters"] == {"ema_fast": 9.0}
