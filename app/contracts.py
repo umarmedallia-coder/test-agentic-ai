@@ -156,15 +156,25 @@ class PaperFill(BaseModel):
 class TradeOutcome(BaseModel):
     outcome_id: str = Field(default_factory=lambda: str(uuid4()))
     fill_id: str
+    entry_fill_id: str | None = None
+    exit_fill_id: str | None = None
     symbol: str
-    entry_price: Decimal
-    exit_price: Decimal
-    quantity: int
+    entry_price: Decimal = Field(gt=0)
+    exit_price: Decimal = Field(gt=0)
+    quantity: int = Field(gt=0)
     gross_pnl: Decimal
-    fees: Decimal
+    fees: Decimal = Field(ge=0)
     net_pnl: Decimal
     reason: str
     closed_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_outcome(self):
+        if self.closed_at.tzinfo is None or self.closed_at.utcoffset() is None:
+            raise ValueError("closed_at must be timezone-aware")
+        if self.net_pnl != self.gross_pnl - self.fees:
+            raise ValueError("net_pnl must equal gross_pnl minus fees")
+        return self
 
 
 class ExecutionSnapshot(BaseModel):
