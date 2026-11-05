@@ -92,11 +92,17 @@ class MockMarketDataProvider:
             "INFY": "Infosys", "BEL": "Bharat Electronics",
             "TCS": "Tata Consultancy Services",
         }
+        sectors = {
+            "RELIANCE": "Energy", "HDFCBANK": "Financials",
+            "INFY": "Information Technology", "BEL": "Industrials",
+            "TCS": "Information Technology",
+        }
         normalized = symbol.upper()
         if normalized not in names:
             raise ValueError(f"unknown mock symbol: {symbol}")
         profile = CompanyProfile(
-            symbol=normalized, company_name=names[normalized], exchange="NSE", source="mock", is_mock=True,
+            symbol=normalized, company_name=names[normalized], sector=sectors[normalized],
+            exchange="NSE", source="mock", is_mock=True,
         )
         return DataEnvelope(source="mock", is_mock=True, as_of=datetime.now(timezone.utc), payload=profile,
                             warnings=["synthetic company profile"])
