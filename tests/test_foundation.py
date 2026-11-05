@@ -566,3 +566,25 @@ def test_snapshot_keeps_missing_position_marks_unavailable(tmp_path):
     assert snapshot["open_trades"][0]["mark_status"] == "missing"
     assert snapshot["open_trades"][0]["unrealized_pnl"] is None
     engine.stop()
+
+
+def test_on_demand_discovery_scans_a_bounded_universe_and_journals(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path, discovery_max_symbols=3))
+    engine.start()
+    result = engine.run_stock_discovery()
+    assert result.status == AgentStatus.SUCCEEDED
+    assert result.findings["universe_count"] == 5
+    assert result.findings["scanned_count"] == 3
+    assert result.is_mock is True
+    assert any(event["type"] == "stock_discovery_completed" for event in engine.journal.read_all())
+    engine.stop()
+
+
+def test_discovery_requires_running_engine_and_bounded_limit(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    with pytest.raises(RuntimeError, match="Engine must be running"):
+        engine.run_stock_discovery()
+    engine.start()
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        engine.run_stock_discovery(limit=0)
+    engine.stop()
