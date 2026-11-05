@@ -3,8 +3,8 @@ from decimal import Decimal
 import pytest
 
 from app.config import Settings
-from app.contracts import PaperFill
-from app.models import Position
+from app.contracts import CorporateActionRecord, PaperFill
+from app.models import AgentResult, AgentStatus, Position
 from app.services.engine import TradingEngine
 from app.services.portfolio import PortfolioLedger
 
@@ -161,4 +161,71 @@ def test_engine_monitors_and_covers_short_position_with_adverse_stop_first(tmp_p
     assert outcome.gross_pnl < 0
     assert outcome.net_pnl == outcome.gross_pnl - outcome.fees
     assert engine.ledger.positions == {}
+    engine.stop()
+
+
+def test_fractional_split_allocates_entry_fees_to_cash_in_lieu():
+    ledger = PortfolioLedger(Decimal("10000"))
+    ledger.apply_buy(fill("fee-bearing-entry", "buy", 3, "100", "3"))
+
+    quantity, average_entry = ledger.apply_split(
+        "ABC", Decimal("2"), Decimal("3"), "fee-bearing-split",
+        cash_in_lieu_price=Decimal("60"),
+    )
+    fractional_fees = Decimal("3") * Decimal("0.5") / Decimal("4.5")
+    assert quantity == 4
+    assert ledger.realized_pnl == (
+        Decimal("0.5") * (Decimal("60") - average_entry) - fractional_fees
+    )
+    assert ledger.positions["ABC"].entry_fees == Decimal("3") - fractional_fees
+
+
+def test_engine_closes_entire_position_when_reverse_split_is_fully_fractional(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    entry = fill("reverse-split-entry", "buy", 1, "100", "0")
+    engine.ledger.apply_buy(entry)
+    engine.positions = [Position(
+        intent_id="reverse-split-intent",
+        symbol="ABC",
+        exchange="NSE",
+        direction="long",
+        quantity=1,
+        entry_price=100,
+        stop_price=90,
+        target_price=120,
+        policy_version="paper-baseline-v1",
+        strategy="test",
+        entry_fill_id=entry.fill_id,
+    )]
+    now = datetime.now().astimezone()
+    action = CorporateActionRecord(
+        action_id="reverse-split-1",
+        symbol="ABC",
+        action_type="split",
+        announcement_date=now,
+        ex_date=now,
+        source="verified-exchange-feed",
+        verified=True,
+        ratio_from=Decimal("2"),
+        ratio_to=Decimal("1"),
+        cash_in_lieu_price=Decimal("60"),
+    )
+    agent = AgentResult(
+        agent_name="Corporate Actions Agent",
+        status=AgentStatus.SUCCEEDED,
+        symbol="ABC",
+        conclusion="Verified reverse split and cash-in-lieu price.",
+        findings={"actions": [action.model_dump(mode="json")]},
+        is_mock=False,
+    )
+
+    blocked = engine._apply_due_corporate_actions(agent, "ABC", now.date())
+
+    assert not blocked
+    assert engine.positions == []
+    assert engine.ledger.positions == {}
+    assert engine.cash == 9930
+    assert engine.realized_pnl == -70
+    assert engine.daily_realized_pnl == -70
     engine.stop()
