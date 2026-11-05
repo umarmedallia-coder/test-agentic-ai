@@ -8,6 +8,8 @@ from app.contracts import (
 )
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentStatus
+from app.llm.provider import LLMUsage
+from app.services.news import NewsInterpretation
 from app.services.strategy_pipelines import (
     run_corporate_actions_pipeline,
     run_news_pipeline,
@@ -74,3 +76,29 @@ async def test_empty_corporate_action_feed_is_explicitly_skipped():
     )
     assert result.status == AgentStatus.SKIPPED
     assert blocked is False
+
+
+class FakeLLM:
+    async def generate_structured(self, *, system_prompt, user_payload, output_model):
+        assert "Do not invent" in system_prompt
+        output = output_model(
+            event_category="order_win",
+            extracted_source_facts=["The article reports a major order win."],
+            interpretation="Potentially positive catalyst; independently verify.",
+            mentioned_entities=["Bharat Electronics"],
+            horizon="short_term",
+            risk_flags=["Order value and execution terms need verification"],
+        )
+        return output, LLMUsage(prompt_tokens=30, completion_tokens=20, total_tokens=50)
+
+
+@pytest.mark.asyncio
+async def test_optional_llm_interpretation_is_structured_and_separate_from_impact():
+    result, intent = await run_news_pipeline(
+        NewsProvider(), "BEL", 100, 2, llm_provider=FakeLLM(),
+    )
+    assert result.status == AgentStatus.SUCCEEDED
+    assert result.findings["impact_score"] == 75
+    assert result.findings["llm_interpretation"]["event_category"] == "order_win"
+    assert result.findings["llm_usage"]["total_tokens"] == 50
+    assert intent is not None
