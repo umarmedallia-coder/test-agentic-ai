@@ -8,7 +8,7 @@ def make_bars(count=60):
     bars = []
     start = datetime.now(UTC) - timedelta(minutes=count)
     for index in range(count):
-        close = 100 + index * 0.12 + (index % 5) * 0.2
+        close = 100 + index * 0.2
         bars.append({
             "timestamp": start + timedelta(minutes=index),
             "open": close - 0.05,
