@@ -46,3 +46,29 @@ def test_risk_manager_enforces_daily_loss_and_lot_rounding(tmp_path):
     )
     assert lot.accepted
     assert lot.approved_quantity == 20
+
+
+@pytest.mark.asyncio
+async def test_langgraph_strategy_nodes_execute_concurrently():
+    import asyncio
+
+    started = 0
+    both_started = asyncio.Event()
+
+    async def worker():
+        nonlocal started
+        started += 1
+        if started == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+        return "done"
+
+    graph = build_strategy_graph()
+    result = await graph.ainvoke({
+        "strategies": ["one", "two"],
+        "tasks": {"one": worker, "two": worker},
+        "results": [],
+    })
+    assert started == 2
+    assert len(result["results"]) == 2
+    assert all(item["status"] == "succeeded" for item in result["results"])
