@@ -16,6 +16,7 @@ from app.services.learning import evaluate_outcomes
 from app.services.risk import RiskManager
 from app.services.technical import analyze_technical
 from app.services.workflow import build_strategy_graph
+from app.llm.factory import build_llm_provider
 from app.services.strategy_pipelines import (
     run_corporate_actions_pipeline,
     run_news_pipeline,
@@ -29,6 +30,7 @@ class TradingEngine:
         self.settings = settings
         self.data = MockMarketData()
         self.provider = MockMarketDataProvider()
+        self.llm_provider = build_llm_provider(settings)
         self.journal = JsonlJournal(settings.journal_dir)
         self.risk = RiskManager(settings)
         self.broker = PaperBroker()
@@ -277,7 +279,7 @@ class TradingEngine:
                     symbol=symbol, exchange=exchange, conclusion="Retrieving and scoring source news.",
                 )]
                 news_agent, news_intent = asyncio.run(
-                    run_news_pipeline(self.provider, symbol, last_price, atr)
+                    run_news_pipeline(self.provider, symbol, last_price, atr, self.llm_provider)
                 )
                 action_agent, event_blocked = asyncio.run(
                     run_corporate_actions_pipeline(
@@ -328,7 +330,7 @@ class TradingEngine:
                         "strategies": ["news", "corporate_actions"],
                         "tasks": {
                             "news": lambda: run_news_pipeline(
-                                self.provider, symbol, last_price, atr,
+                                self.provider, symbol, last_price, atr, self.llm_provider,
                             ),
                             "corporate_actions": lambda: run_corporate_actions_pipeline(
                                 self.provider, symbol,
