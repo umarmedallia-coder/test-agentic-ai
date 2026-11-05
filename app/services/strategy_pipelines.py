@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from app.contracts import CorporateActionRecord
 from app.data.contracts import MarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence, TradeIntent
-from app.llm.provider import LLMProvider, LLMProviderError
+from app.llm.provider import LLMProvider
 from app.services.corporate_actions import ActionType, CorporateAction, blocks_new_entry
 from app.services.relationship_mapper import expand_related_symbols
 from app.services.news import (
