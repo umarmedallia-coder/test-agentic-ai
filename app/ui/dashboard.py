@@ -84,7 +84,7 @@ if page == "Overview":
             elif result.status == AgentStatus.SKIPPED:
                 st.warning(result.conclusion)
             else:
-                st.error(result.errors or result.conclusion)
+                st.error("; ".join(result.errors) if result.errors else result.conclusion)
         except Exception as exc:
             st.error(f"Discovery failed: {exc}")
 
@@ -187,7 +187,7 @@ else:
         active = {agent.agent_name: agent for agent in snapshot["agents"]}
         for name, responsibility in roster:
             result = active.get(name)
-            status = result.status if result else AgentStatus.UNIMPLEMENTED
+            status = result.status if result else AgentStatus.SKIPPED
             with st.container(border=True):
                 left, right = st.columns([3, 1])
                 left.markdown(f"**{name}**")
