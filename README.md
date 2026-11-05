@@ -60,7 +60,7 @@ This branch is **not yet the completed plan**. In particular:
 - Technical and news modes both pass through corporate-action restrictions; combined mode additionally requires matching technical/news direction and a successful unblocked corporate-action feed. News mapping supports direct symbol/alias validation and evidence-backed one-hop relationship transmission. Multi-source attribution, multi-symbol conflict reconciliation, unresolved entity workflows and full supplier/customer/commodity exposure validation remain incomplete. Split/dividend calculations are available in the ledger, but the engine does not yet automatically apply verified source events to open positions or journal entitlement cashflows.
 - Risk management has per-trade sizing, open-position, daily-loss, drawdown, gross-exposure, lot-size and volume-participation checks, but still needs full exchange-calendar/event integration, sector/correlation exposure and more comprehensive daily P&L controls.
 - Scheduler and process-wide Streamlit controller are implemented; the OS journal lock prevents a second process from becoming a writer. Circuit breakers, robust cancellation of every in-flight provider call and browser-level multi-tab acceptance tests remain incomplete.
-- Ollama/OpenRouter adapters are wired into optional news interpretation. Trade outcomes are persisted and summarized, but chronological train/test evaluation, policy versioning/rollback, and browser-level multi-tab/disconnect acceptance tests remain incomplete.
+- Ollama/OpenRouter adapters are wired into optional news interpretation. Trade outcomes are persisted; a leakage-safe chronological evaluation gate and paper-only versioned promotion/rollback registry are implemented as services, but automated candidate generation and engine-level policy promotion remain unwired. Browser-level multi-tab/disconnect acceptance tests remain incomplete.
 - Agent roster names are not proof that those agents exist. Unimplemented agents must remain visibly unimplemented.
 
 Mock data is synthetic and cannot establish strategy accuracy or profitability. No return target is promised. Live trading remains deliberately absent. Do not use this branch for financial decisions until critical risk, accounting, persistence and lifecycle acceptance tests pass.
@@ -68,7 +68,7 @@ Mock data is synthetic and cannot establish strategy accuracy or profitability. 
 ## Checks
 
 ```bash
-pytest --cov=app --cov-report=term-missing
+pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 ruff check .
 mypy app
 ```
