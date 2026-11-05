@@ -1,4 +1,4 @@
-"""Mark-to-market accounting using Decimal arithmetic."""
+"""Canonical Decimal portfolio accounting with idempotent fills and corporate actions."""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -12,14 +12,14 @@ class OpenPosition(BaseModel):
     symbol: str
     quantity: int = Field(gt=0)
     average_entry: Decimal = Field(gt=0)
-    entry_fees: Decimal = Decimal("0")
+    entry_fees: Decimal = Field(default=Decimal("0"), ge=0)
     mark: Decimal | None = None
 
     @property
     def unrealized_pnl(self) -> Decimal | None:
         if self.mark is None:
             return None
-        return (self.mark-self.average_entry)*self.quantity-self.entry_fees
+        return (self.mark - self.average_entry) * self.quantity - self.entry_fees
 
 
 class PortfolioLedger:
@@ -38,17 +38,44 @@ class PortfolioLedger:
             return
         if fill.side.lower() not in {"buy", "long"}:
             raise ValueError("apply_buy requires a buy/long fill")
-        notional = fill.price*fill.quantity
-        if notional+fill.fees > self.cash:
+        notional = fill.price * fill.quantity
+        if notional + fill.fees > self.cash:
             raise ValueError("insufficient paper cash")
         old = self.positions.get(fill.symbol)
-        total_qty = fill.quantity+(old.quantity if old else 0)
-        total_cost = notional+(old.average_entry*old.quantity if old else 0)
-        fees = fill.fees+(old.entry_fees if old else Decimal("0"))
-        self.positions[fill.symbol] = OpenPosition(symbol=fill.symbol,quantity=total_qty,
-            average_entry=total_cost/total_qty,entry_fees=fees,mark=fill.price)
-        self.cash -= notional+fill.fees
+        total_qty = fill.quantity + (old.quantity if old else 0)
+        total_cost = notional + (old.average_entry * old.quantity if old else 0)
+        fees = fill.fees + (old.entry_fees if old else Decimal("0"))
+        self.positions[fill.symbol] = OpenPosition(
+            symbol=fill.symbol, quantity=total_qty,
+            average_entry=total_cost / total_qty, entry_fees=fees, mark=fill.price,
+        )
+        self.cash -= notional + fill.fees
         self._applied_fills.add(fill.fill_id)
+
+    def apply_sell(self, fill: PaperFill) -> Decimal:
+        """Close or reduce a long position and realize net P&L exactly once."""
+        if fill.fill_id in self._applied_fills:
+            return Decimal("0")
+        if fill.side.lower() not in {"sell", "short"}:
+            raise ValueError("apply_sell requires a sell/short fill")
+        position = self.positions.get(fill.symbol)
+        if position is None or fill.quantity > position.quantity:
+            raise ValueError("sell quantity exceeds the open paper position")
+        allocated_entry_fees = (
+            position.entry_fees * Decimal(fill.quantity) / Decimal(position.quantity)
+        )
+        gross = (fill.price - position.average_entry) * fill.quantity
+        net = gross - allocated_entry_fees - fill.fees
+        self.cash += fill.price * fill.quantity - fill.fees
+        self.realized_pnl += net
+        remaining_quantity = position.quantity - fill.quantity
+        if remaining_quantity == 0:
+            del self.positions[fill.symbol]
+        else:
+            position.quantity = remaining_quantity
+            position.entry_fees -= allocated_entry_fees
+        self._applied_fills.add(fill.fill_id)
+        return net
 
     def apply_split(
         self, symbol: str, ratio_from: Decimal, ratio_to: Decimal, action_id: str,
@@ -113,10 +140,32 @@ class PortfolioLedger:
         unrealized = self.unrealized_pnl
         if unrealized is None:
             return None
-        market_value = sum((p.mark or p.average_entry)*p.quantity for p in self.positions.values())
-        return self.cash+market_value
+        market_value = sum(
+            (position.mark or position.average_entry) * position.quantity
+            for position in self.positions.values()
+        )
+        return self.cash + market_value
 
     def snapshot(self) -> dict:
-        return {"cash":str(self.cash),"equity":str(self.equity) if self.equity is not None else None,
-            "realized_pnl":str(self.realized_pnl),"unrealized_pnl":str(self.unrealized_pnl) if self.unrealized_pnl is not None else None,
-            "positions":{k:v.model_dump(mode="json") for k,v in self.positions.items()}}
+        return {
+            "starting_cash": str(self.starting_cash),
+            "cash": str(self.cash),
+            "realized_pnl": str(self.realized_pnl),
+            "positions": {
+                symbol: position.model_dump(mode="json")
+                for symbol, position in self.positions.items()
+            },
+            "applied_fills": sorted(self._applied_fills),
+            "applied_actions": sorted(self._applied_actions),
+        }
+
+    def restore(self, snapshot: dict) -> None:
+        self.starting_cash = Decimal(snapshot["starting_cash"])
+        self.cash = Decimal(snapshot["cash"])
+        self.realized_pnl = Decimal(snapshot["realized_pnl"])
+        self.positions = {
+            symbol: OpenPosition.model_validate(position)
+            for symbol, position in snapshot.get("positions", {}).items()
+        }
+        self._applied_fills = set(snapshot.get("applied_fills", []))
+        self._applied_actions = set(snapshot.get("applied_actions", []))
