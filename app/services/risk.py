@@ -1,7 +1,53 @@
 import math
 
+from collections.abc import Sequence
+from datetime import datetime
+
 from app.config import Settings
 from app.models import RiskDecision, TradeIntent
+
+
+def return_correlation(
+    candidate_bars: Sequence[dict],
+    peer_bars: Sequence[dict],
+    *,
+    minimum_observations: int = 20,
+) -> float | None:
+    """Pearson correlation of timestamp-aligned close-to-close returns."""
+    def close_map(rows: Sequence[dict]) -> dict[datetime, float]:
+        values: dict[datetime, float] = {}
+        for row in rows:
+            timestamp = row.get("timestamp")
+            close = row.get("close")
+            if isinstance(timestamp, datetime) and close is not None:
+                price = float(close)
+                if math.isfinite(price) and price > 0:
+                    values[timestamp] = price
+        return values
+
+    candidate = close_map(candidate_bars)
+    peer = close_map(peer_bars)
+    common = sorted(set(candidate).intersection(peer))
+    if len(common) < minimum_observations + 1:
+        return None
+    x = [
+        candidate[right] / candidate[left] - 1
+        for left, right in zip(common, common[1:])
+    ]
+    y = [
+        peer[right] / peer[left] - 1
+        for left, right in zip(common, common[1:])
+    ]
+    mean_x = sum(x) / len(x)
+    mean_y = sum(y) / len(y)
+    centered_x = [value - mean_x for value in x]
+    centered_y = [value - mean_y for value in y]
+    sum_x = sum(value * value for value in centered_x)
+    sum_y = sum(value * value for value in centered_y)
+    if sum_x <= 0 or sum_y <= 0:
+        return None
+    covariance = sum(a * b for a, b in zip(centered_x, centered_y))
+    return max(-1.0, min(1.0, covariance / math.sqrt(sum_x * sum_y)))
 
 
 class RiskManager:
