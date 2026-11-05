@@ -13,6 +13,7 @@ async def test_mock_provider_uses_explicit_empty_status_for_unavailable_feeds():
     actions = await provider.get_corporate_actions("BEL")
     relationships = await provider.get_company_relationships("BEL")
     assert news.status == DataStatus.EMPTY and news.payload == []
+    assert news.is_mock is True
     assert actions.status == DataStatus.EMPTY and actions.payload == []
     assert relationships.status == DataStatus.EMPTY and relationships.payload == []
 
@@ -24,6 +25,7 @@ async def test_mock_provider_returns_typed_timezone_aware_prices():
     start = end - timedelta(days=20)
     history = await provider.get_historical_prices("BEL", start, end)
     assert history.payload
+    assert history.is_mock is True
     assert history.payload[-1].timestamp.tzinfo is not None
     quote = await provider.get_stock_quote("BEL")
     assert quote.payload.price > 0
