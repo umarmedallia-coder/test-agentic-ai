@@ -88,8 +88,12 @@ if page == "Overview":
             f"{snapshot['scheduler_active']} · Last cycle: "
             f"{snapshot['last_cycle_at'] or 'not run'}"
         )
+        unrealized_value = snapshot["unrealized_pnl"]
+        unrealized_label = (
+            f"₹{unrealized_value:,.2f}" if unrealized_value is not None else "Unavailable"
+        )
         st.caption(
-            f"Unrealized P&L: ₹{snapshot['unrealized_pnl']:,.2f} · "
+            f"Unrealized P&L: {unrealized_label} · "
             f"Daily P&L: ₹{snapshot['daily_pnl']:,.2f} · "
             f"Fees: ₹{snapshot['fees_paid']:,.2f} · "
             f"Peak-to-current drawdown: {drawdown:.2%} · "
