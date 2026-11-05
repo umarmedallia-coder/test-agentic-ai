@@ -430,3 +430,26 @@ def test_intent_idempotency_key_is_stable_for_the_same_completed_bar():
     next_bar = TradingEngine._stable_intent_id(intent, timestamp + timedelta(minutes=1))
     assert first == repeated
     assert first != next_bar
+
+
+def test_engine_fails_closed_on_stale_typed_historical_data(tmp_path):
+    from app.data.mock_provider import MockMarketDataProvider
+
+    class StaleHistoryProvider(MockMarketDataProvider):
+        async def get_historical_prices(self, symbol, start, end, exchange="NSE"):
+            return DataEnvelope(
+                source="test-stale", as_of=datetime.now(UTC),
+                status="stale", payload=[], is_mock=False,
+            )
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.provider = StaleHistoryProvider()
+    engine.start()
+    engine.run_cycle()
+    assert engine.positions == []
+    assert engine.agents[0].status == AgentStatus.FAILED
+    assert any(
+        event.get("type") == "market_data_rejected"
+        for event in engine.journal.read_all()
+    )
+    engine.stop()
