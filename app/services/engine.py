@@ -259,6 +259,7 @@ class TradingEngine:
                     adjusted = self.ledger.apply_split(
                         record.symbol, record.ratio_from, record.ratio_to,
                         action_id=record.action_id,
+                        cash_in_lieu_price=record.cash_in_lieu_price,
                     )
                     if adjusted is None:
                         raise ValueError("split action did not resolve an open ledger position")
