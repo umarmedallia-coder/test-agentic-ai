@@ -4,7 +4,10 @@ from decimal import Decimal
 import pytest
 
 from app.contracts import TradeOutcome
+from app.config import Settings
+from app.services.engine import TradingEngine
 from app.services.learning import (
+    CandidateEvaluation,
     PaperPolicy,
     PaperPolicyRegistry,
     evaluate_candidate,
@@ -109,3 +112,66 @@ def test_strategy_parameter_proposals_are_bounded_and_risk_limits_are_immutable(
         )
     with pytest.raises(ValueError, match="bounded change"):
         validate_strategy_parameter_proposal(current, {"ema_fast": 20})
+
+
+def test_candidate_comparison_requires_identical_validation_timestamps():
+    training = make_outcomes("train", 0, 100, Decimal("1"))
+    candidate = make_outcomes("candidate", 100, 100, Decimal("2"))
+    baseline = make_outcomes("baseline", 100, 100, Decimal("1"))
+    baseline[50].closed_at += timedelta(days=1)
+    evaluation = evaluate_candidate(
+        training_outcomes=training,
+        candidate_validation=candidate,
+        baseline_validation=baseline,
+        candidate_version="paper-v2",
+        baseline_version="paper-v1",
+        minimum_samples=100,
+    )
+    assert not evaluation.accepted
+    assert "candidate and baseline validation windows do not match" in evaluation.reasons
+
+
+def test_engine_policy_promotion_is_gated_persisted_and_rollbackable(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    evaluation = CandidateEvaluation(
+        accepted=True, candidate_version="paper-v2",
+        baseline_version="paper-baseline-v1", training_samples=100,
+        candidate_validation_samples=100, baseline_validation_samples=100,
+        candidate_net_pnl=Decimal("200"), baseline_net_pnl=Decimal("100"),
+    )
+    promoted = engine.promote_paper_policy(
+        PaperPolicy(
+            version="paper-v2", parent_version="paper-baseline-v1",
+            parameters={"ema_fast": 8},
+        ),
+        evaluation,
+    )
+    assert promoted.version == "paper-v2"
+    engine.stop()
+
+    recovered = TradingEngine(Settings(journal_dir=tmp_path))
+    recovered.start()
+    assert recovered.policy_registry.active.version == "paper-v2"
+    assert recovered.rollback_paper_policy().version == "paper-baseline-v1"
+    recovered.stop()
+
+
+def test_engine_rejects_unvalidated_policy_promotion(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    candidate = PaperPolicy(
+        version="paper-v2", parent_version="paper-baseline-v1",
+        parameters={"ema_fast": 8},
+    )
+    rejected = CandidateEvaluation(
+        accepted=False, candidate_version="paper-v2",
+        baseline_version="paper-baseline-v1", training_samples=100,
+        candidate_validation_samples=100, baseline_validation_samples=100,
+        candidate_net_pnl=Decimal("-10"), baseline_net_pnl=Decimal("100"),
+        reasons=["candidate out-of-sample PnL is not positive"],
+    )
+    with pytest.raises(ValueError, match="evaluation gates"):
+        engine.promote_paper_policy(candidate, rejected)
+    assert engine.policy_registry.active.version == "paper-baseline-v1"
+    engine.stop()
