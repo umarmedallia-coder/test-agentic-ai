@@ -7,7 +7,6 @@ from decimal import Decimal
 import numpy as np
 
 from app.contracts import DataEnvelope, OHLCVBar, Quote
-from app.data.contracts import MarketDataProvider
 
 
 class MockMarketDataProvider:
