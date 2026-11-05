@@ -13,7 +13,7 @@ from app.agents.critic import critique_evidence
 from app.agents.stock_discovery import discover_stocks
 from app.agents.strategy import evaluate_strategy
 from app.agents.synthesis import synthesize_recommendation
-from app.contracts import CorporateActionRecord, Evidence, PaperFill, Signal, TradeOutcome
+from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
 from app.data.contracts import MarketDataProvider
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence, Position, RiskDecision
@@ -938,11 +938,14 @@ class TradingEngine:
                     sector_evidence = []
                     if profile_feed is not None and profile_feed.payload is not None and candidate_sector:
                         sector_evidence = [Evidence(
-                            kind="company_sector",
                             source=profile_feed.source, observed_at=profile_feed.as_of,
                             statement=f"Provider classifies {symbol} in sector {candidate_sector}.",
-                            facts={"symbol": symbol, "sector": candidate_sector},
-                            confidence=1.0,
+                            provenance=profile_feed.source,
+                            limitations=(
+                                ["Synthetic mock sector classification"]
+                                if profile_feed.is_mock else
+                                ["Sector classifications can lag corporate-structure changes"]
+                            ),
                         )]
                     self.agents[-1] = AgentResult(
                         agent_name="Risk Management Agent",
