@@ -94,3 +94,28 @@ def test_automatic_scheduler_runs_and_drains_on_stop(tmp_path, monkeypatch):
     assert cycle_ran.wait(timeout=2)
     engine.stop()
     assert not engine.snapshot()["scheduler_active"]
+
+
+def test_stop_first_exit_persists_closed_portfolio(tmp_path):
+    from app.models import Position
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine.start()
+    engine.cash = 8_999
+    engine.positions = [Position(
+        intent_id="intent-1", symbol="RELIANCE", exchange="NSE",
+        direction="long", quantity=10, entry_price=100,
+        stop_price=95, target_price=110, policy_version="test",
+        entry_fees=1,
+    )]
+    engine.marks["RELIANCE"] = 100
+    engine._close_triggered_positions(
+        "RELIANCE", {"low": 94, "high": 111},
+    )
+    assert engine.positions == []
+    events = engine.journal.read_all()
+    snapshots = [event for event in events if event["type"] == "portfolio_snapshot"]
+    assert snapshots[-1]["positions"] == []
+    closed = [event for event in events if event["type"] == "position_closed"]
+    assert closed[-1]["reason"] == "stop_loss"
+    engine.stop()
