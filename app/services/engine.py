@@ -16,7 +16,7 @@ from app.agents.strategy import evaluate_strategy
 from app.agents.synthesis import synthesize_recommendation
 from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
 from app.data.mock_provider import MockMarketDataProvider
-from app.models import AgentResult, AgentStatus, Position
+from app.models import AgentResult, AgentStatus, Position, RiskDecision
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
 from app.services.learning import (
@@ -683,7 +683,7 @@ class TradingEngine:
                 )
             )
             self.agents.append(critic_agent)
-            risk_decision = None
+            risk_decision: RiskDecision | None = None
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
                 intent.id = self._stable_intent_id(intent, latest["timestamp"])
