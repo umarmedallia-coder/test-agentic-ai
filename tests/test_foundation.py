@@ -7,6 +7,7 @@ from app.config import Settings
 from app.contracts import CompanyProfile, CorporateActionRecord, DataEnvelope, NewsRecord, PaperFill
 from app.models import AgentResult, AgentStatus, Position, TradeIntent
 from app.services.engine import TradingEngine
+from app.data.mock_provider import is_regular_session
 from app.services.learning import CandidateEvaluation, PaperPolicy
 from app.services.journal import JournalError, JsonlJournal
 from app.services.risk import RiskManager
@@ -588,3 +589,15 @@ def test_discovery_requires_running_engine_and_bounded_limit(tmp_path):
     with pytest.raises(ValueError, match="between 1 and 500"):
         engine.run_stock_discovery(limit=0)
     engine.stop()
+
+
+def test_mock_calendar_respects_india_regular_session_boundaries():
+    from datetime import date
+
+    trading_day = date(2026, 11, 6)  # Friday
+    assert is_regular_session(trading_day, datetime(2026, 11, 6, 3, 45, tzinfo=UTC))
+    assert not is_regular_session(trading_day, datetime(2026, 11, 6, 3, 44, tzinfo=UTC))
+    assert not is_regular_session(trading_day, datetime(2026, 11, 6, 10, 0, tzinfo=UTC))
+    assert not is_regular_session(date(2026, 11, 7), datetime(2026, 11, 7, 5, 0, tzinfo=UTC))
+    with pytest.raises(ValueError, match="timezone-aware"):
+        is_regular_session(trading_day, datetime(2026, 11, 6, 4, 0))
