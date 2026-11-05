@@ -205,6 +205,9 @@ class CorporateActionRecord(BaseModel):
     record_date: datetime | None = None
     source: str
     verified: bool = False
+    ratio_from: Decimal | None = Field(default=None, gt=0)
+    ratio_to: Decimal | None = Field(default=None, gt=0)
+    cash_amount: Decimal | None = Field(default=None, ge=0)
 
 
 class CompanyProfile(BaseModel):
