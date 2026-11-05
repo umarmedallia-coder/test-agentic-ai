@@ -372,7 +372,7 @@ class TradingEngine:
                 gross_pnl=gross_decimal, fees=total_fees_decimal,
                 net_pnl=net_decimal, reason=reason,
                 policy_version=position.policy_version, strategy=position.strategy,
-                entry_at=position.opened_at, closed_at=fill.filled_at,
+                sector=position.sector, entry_at=position.opened_at, closed_at=fill.filled_at,
             )
             ledger_net = self.ledger.apply_sell(fill)
             self.realized_pnl = float(self.ledger.realized_pnl)
