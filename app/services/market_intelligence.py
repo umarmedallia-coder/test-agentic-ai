@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 
 from app.data.contracts import MarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence
