@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = ["pydantic>=2.8,<3", "pydantic-settings>=2.4,<3", "streamlit>=1.38,<2", "pandas>=2.2,<3", "numpy>=2.0,<3", "langgraph>=0.2,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11", "pandas-stubs>=2.2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
