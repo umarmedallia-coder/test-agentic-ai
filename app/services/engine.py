@@ -273,4 +273,5 @@ class TradingEngine:
             "realized_pnl": self.realized_pnl, "fees_paid": self.fees_paid,
             "positions": self.positions, "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "paused": self.paused,
+            "scheduler_active": self._scheduler_thread is not None and self._scheduler_thread.is_alive(),
         }
