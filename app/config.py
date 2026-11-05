@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     max_daily_loss_pct: float = Field(default=.03, gt=0, le=.20)
     max_drawdown_pct: float = Field(default=.10, gt=0, le=.50)
     max_open_positions: int = Field(default=5, ge=1, le=100)
+    cycle_interval_seconds: int = Field(default=60, ge=5, le=3600)
+    watchlist: list[str] = Field(default_factory=lambda: ["RELIANCE"])
 
     @model_validator(mode="after")
     def validate_limits(self) -> "Settings":
