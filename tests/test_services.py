@@ -250,3 +250,22 @@ def test_news_impact_maps_same_inverse_and_mixed_relationships():
     assert directions["XYZ"] == "negative"
     assert directions["ABC"] == "mixed"
     assert result.rejected_relationships == 1
+
+
+def test_portfolio_ledger_realizes_exit_after_entry_and_costs_once():
+    ledger = PortfolioLedger(Decimal("10000"))
+    entry = PaperFill(
+        fill_id="entry-abc", signal_id="signal-abc", symbol="ABC", side="buy",
+        quantity=10, price=Decimal("100"), fees=Decimal("1"),
+    )
+    ledger.apply_buy(entry)
+    exit_fill = PaperFill(
+        fill_id="exit-abc", signal_id="exit-signal-abc", symbol="ABC", side="short",
+        quantity=10, price=Decimal("110"), fees=Decimal("1"),
+    )
+    realized = ledger.apply_sell(exit_fill)
+    assert realized == Decimal("98")
+    assert ledger.realized_pnl == Decimal("98")
+    assert ledger.cash == Decimal("10098")
+    assert ledger.positions == {}
+    assert ledger.apply_sell(exit_fill) == Decimal("0")
