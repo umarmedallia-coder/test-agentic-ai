@@ -6,7 +6,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.config import Settings
-from app.contracts import Signal, TradeOutcome
+from app.contracts import PaperFill, Signal, TradeOutcome
 from app.data.mock import MockMarketData
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
@@ -14,6 +14,7 @@ from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
 from app.services.learning import evaluate_outcomes
 from app.services.risk import RiskManager
+from app.services.portfolio import PortfolioLedger
 from app.services.technical import analyze_technical
 from app.services.workflow import build_strategy_graph
 from app.llm.factory import build_llm_provider
@@ -31,17 +32,16 @@ class TradingEngine:
         self.data = MockMarketData()
         self.provider = MockMarketDataProvider()
         self.llm_provider = build_llm_provider(settings)
-        self.llm_provider = build_llm_provider(settings)
         self.journal = JsonlJournal(settings.journal_dir)
         self.risk = RiskManager(settings)
         self.broker = PaperBroker()
+        self.ledger = PortfolioLedger(Decimal(str(settings.initial_capital_inr)))
         self._lock = RLock()
         self._scheduler_stop = Event()
         self._scheduler_thread: Thread | None = None
         self._started = False
         self.state = "idle"
         self.paused = False
-        self.cash = settings.initial_capital_inr
         self.positions: list[Position] = []
         self.marks: dict[str, float] = {}
         self.realized_pnl = 0.0
@@ -57,17 +57,22 @@ class TradingEngine:
         self.last_cycle_at: datetime | None = None
 
     @property
-    def equity(self) -> float:
-        market_value = sum(self.marks.get(p.symbol, p.entry_price) * p.quantity
-                           for p in self.positions)
-        return self.cash + market_value
+    def cash(self) -> float:
+        return float(self.ledger.cash)
+
+    @cash.setter
+    def cash(self, value: float | Decimal) -> None:
+        self.ledger.cash = Decimal(str(value))
 
     @property
-    def unrealized_pnl(self) -> float:
-        return sum(
-            (self.marks.get(p.symbol, p.entry_price) - p.entry_price) * p.quantity
-            - p.entry_fees for p in self.positions
-        )
+    def equity(self) -> float | None:
+        value = self.ledger.equity
+        return float(value) if value is not None else None
+
+    @property
+    def unrealized_pnl(self) -> float | None:
+        value = self.ledger.unrealized_pnl
+        return float(value) if value is not None else None
 
     def _restore(self, events: list[dict]) -> None:
         snapshots = [event for event in events if event.get("type") == "portfolio_snapshot"]
@@ -78,6 +83,25 @@ class TradingEngine:
         self.positions = [Position.model_validate(item) for item in snapshot.get("positions", [])]
         self.marks = {key: float(value) for key, value in snapshot.get("marks", {}).items()}
         self.realized_pnl = float(snapshot.get("realized_pnl", 0))
+        ledger_snapshot = snapshot.get("ledger")
+        if ledger_snapshot:
+            self.ledger.restore(ledger_snapshot)
+        else:
+            # Upgrade legacy snapshots into the canonical Decimal ledger.
+            self.ledger = PortfolioLedger(Decimal(str(self.settings.initial_capital_inr)))
+            for position in self.positions:
+                self.ledger.apply_buy(PaperFill(
+                    fill_id=position.entry_fill_id or position.intent_id,
+                    signal_id=position.intent_id, symbol=position.symbol, side="buy",
+                    quantity=position.quantity, price=Decimal(str(position.entry_price)),
+                    fees=Decimal(str(position.entry_fees)), filled_at=position.opened_at,
+                ))
+                self.ledger.mark(
+                    position.symbol,
+                    Decimal(str(self.marks.get(position.symbol, position.entry_price))),
+                )
+            self.ledger.cash = Decimal(str(snapshot["cash"]))
+            self.ledger.realized_pnl = Decimal(str(self.realized_pnl))
         self.daily_realized_pnl = float(snapshot.get("daily_realized_pnl", 0))
         self.daily_pnl_date = snapshot.get("daily_pnl_date", self.daily_pnl_date)
         self.daily_start_equity = float(snapshot.get("daily_start_equity", self.cash))
@@ -92,6 +116,7 @@ class TradingEngine:
         self.journal.append({
             "type": "portfolio_snapshot",
             "cash": self.cash,
+            "ledger": self.ledger.snapshot(),
             "positions": [position.model_dump(mode="json") for position in self.positions],
             "marks": self.marks,
             "realized_pnl": self.realized_pnl,
@@ -219,7 +244,6 @@ class TradingEngine:
                 rationale=reason,
             )
             fill = self.broker.execute(exit_signal, position.quantity, Decimal(str(trigger_price)))
-            proceeds = float(fill.price) * fill.quantity - float(fill.fees)
             entry_price = Decimal(str(position.entry_price))
             gross_decimal = (fill.price - entry_price) * fill.quantity
             total_fees_decimal = Decimal(str(position.entry_fees)) + fill.fees
@@ -234,9 +258,9 @@ class TradingEngine:
                 gross_pnl=gross_decimal, fees=total_fees_decimal,
                 net_pnl=net_decimal, reason=reason, closed_at=fill.filled_at,
             )
-            self.cash += proceeds
-            self.realized_pnl += net
-            self.daily_realized_pnl += net
+            ledger_net = self.ledger.apply_sell(fill)
+            self.realized_pnl = float(self.ledger.realized_pnl)
+            self.daily_realized_pnl += float(ledger_net)
             self.fees_paid += float(fill.fees)
             self.outcomes.append(outcome)
             close_events.append({
@@ -261,6 +285,7 @@ class TradingEngine:
             latest = bars[-1]
             last_price = float(latest["close"])
             self.marks[symbol] = last_price
+            self.ledger.mark(symbol, Decimal(str(last_price)))
             trading_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
             calendar = asyncio.run(self.provider.get_trading_calendar(trading_date))
             market_open = (
@@ -477,7 +502,7 @@ class TradingEngine:
                                 "intent_id": intent.id,
                             })
                         else:
-                            self.cash -= total_cost
+                            self.ledger.apply_buy(fill)
                             self.fees_paid += float(fill.fees)
                             self.positions.append(Position(
                                 intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
