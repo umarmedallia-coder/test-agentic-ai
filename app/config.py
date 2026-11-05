@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     cycle_interval_seconds: int = Field(default=60, ge=5, le=3600)
     watchlist: list[str] = Field(default_factory=lambda: ["RELIANCE"])
     default_exchange: Literal["NSE", "BSE"] = "NSE"
+    llm_provider: Literal["disabled", "ollama", "openrouter"] = "disabled"
+    llm_base_url: str = "http://localhost:11434"
+    llm_model: str = "qwen3:4b"
+    llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: int = Field(default=30, ge=1, le=300)
 
     @model_validator(mode="after")
     def validate_limits(self) -> "Settings":
