@@ -23,18 +23,20 @@ class OpenAICompatibleProvider:
         model: str,
         api_key: str | None = None,
         timeout_seconds: float = 30,
+        max_concurrency: int = 4,
     ) -> None:
         if provider not in {"ollama", "openrouter"}:
             raise ValueError("provider must be ollama or openrouter")
         if not base_url.startswith(("http://", "https://")) or not model.strip():
             raise ValueError("valid base_url and model are required")
-        if timeout_seconds <= 0:
-            raise ValueError("timeout must be positive")
+        if timeout_seconds <= 0 or max_concurrency < 1:
+            raise ValueError("timeout and concurrency limits must be positive")
         self.provider = provider
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self._semaphore = asyncio.Semaphore(max_concurrency)
 
     def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
@@ -90,10 +92,11 @@ class OpenAICompatibleProvider:
                 },
             }
             path = "/chat/completions"
-        response = await asyncio.wait_for(
-            asyncio.to_thread(self._post_json, path, body),
-            timeout=self.timeout_seconds + 1,
-        )
+        async with self._semaphore:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(self._post_json, path, body),
+                timeout=self.timeout_seconds + 1,
+            )
         try:
             estimated_cost = None
             if self.provider == "ollama":
