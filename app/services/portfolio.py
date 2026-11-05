@@ -1,7 +1,7 @@
 """Canonical Decimal portfolio accounting with idempotent long/short fills and corporate actions."""
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -128,6 +128,7 @@ class PortfolioLedger:
 
     def apply_split(
         self, symbol: str, ratio_from: Decimal, ratio_to: Decimal, action_id: str,
+        *, cash_in_lieu_price: Decimal | None = None,
     ) -> tuple[int, Decimal] | None:
         if not action_id.strip():
             raise ValueError("action_id is required for idempotent split accounting")
@@ -141,13 +142,29 @@ class PortfolioLedger:
             self._applied_actions.add(action_id)
             return None
         adjusted_quantity = Decimal(position.quantity) * ratio_to / ratio_from
-        if adjusted_quantity != adjusted_quantity.to_integral_value():
-            raise ValueError("fractional split entitlement requires cash-in-lieu handling")
+        whole_quantity = int(adjusted_quantity.to_integral_value(rounding=ROUND_FLOOR))
+        fractional_quantity = adjusted_quantity - Decimal(whole_quantity)
+        if fractional_quantity and (cash_in_lieu_price is None or cash_in_lieu_price <= 0):
+            raise ValueError("fractional split entitlement requires a positive cash-in-lieu price")
         factor = ratio_from / ratio_to
-        position.quantity = int(adjusted_quantity)
-        position.average_entry *= factor
-        if position.mark is not None:
-            position.mark *= factor
+        adjusted_average = position.average_entry * factor
+        adjusted_mark = position.mark * factor if position.mark is not None else None
+        if fractional_quantity:
+            assert cash_in_lieu_price is not None
+            cash_value = fractional_quantity * cash_in_lieu_price
+            if position.direction == "long":
+                self.cash += cash_value
+                self.realized_pnl += fractional_quantity * (cash_in_lieu_price - adjusted_average)
+            else:
+                self.cash -= cash_value
+                self.realized_pnl += fractional_quantity * (adjusted_average - cash_in_lieu_price)
+        if whole_quantity == 0:
+            del self.positions[symbol]
+            self._applied_actions.add(action_id)
+            return None
+        position.quantity = whole_quantity
+        position.average_entry = adjusted_average
+        position.mark = adjusted_mark
         self._applied_actions.add(action_id)
         return position.quantity, position.average_entry
 
