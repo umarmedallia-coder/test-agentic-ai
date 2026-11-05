@@ -908,6 +908,7 @@ class TradingEngine:
                     candidate_sector = (
                         profile_feed.payload.sector
                         if profile_feed is not None and profile_feed.status.value == "ok"
+                        and profile_feed.payload is not None
                         and profile_feed.freshness_seconds <= self.settings.max_market_data_freshness_seconds
                         else None
                     )
