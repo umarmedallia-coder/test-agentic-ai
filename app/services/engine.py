@@ -1,6 +1,6 @@
 import asyncio
 import hashlib
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
-from app.data.mock import MockMarketData
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
 from app.services.execution import PaperBroker
@@ -33,7 +32,6 @@ class TradingEngine:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.data = MockMarketData()
         self.provider = MockMarketDataProvider()
         self.llm_provider = build_llm_provider(settings)
         self.journal = JsonlJournal(settings.journal_dir)
@@ -380,8 +378,55 @@ class TradingEngine:
         with self._lock:
             if not self._started:
                 raise RuntimeError("Engine is not running")
-            envelope = self.data.historical_prices(symbol, exchange)
-            bars = envelope.payload["bars"]
+            now = datetime.now(timezone.utc)
+            history = asyncio.run(self.provider.get_historical_prices(
+                symbol, now - timedelta(days=80), now, exchange,
+            ))
+            if history.status.value != "ok" or not history.payload:
+                reason = history.error or f"historical prices status: {history.status.value}"
+                self.agents = [AgentResult(
+                    agent_name="Technical Analysis Agent", status=AgentStatus.FAILED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="Historical market data is unavailable; entries blocked.",
+                    errors=[reason],
+                    is_mock=history.is_mock,
+                )]
+                self.errors.append(f"{symbol}: {reason}")
+                self.journal.append({
+                    "type": "market_data_rejected", "symbol": symbol,
+                    "status": history.status.value, "reason": reason,
+                    "source": history.source, "is_mock": history.is_mock,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                })
+                self.last_cycle_at = datetime.now(timezone.utc)
+                self._persist()
+                return
+            bars = [bar.model_dump(mode="python") for bar in history.payload]
+            timestamps = [bar["timestamp"] for bar in bars]
+            if (
+                len(bars) < 35
+                or any(bar["symbol"].upper() != symbol.upper() for bar in bars)
+                or any(bar["exchange"] != exchange for bar in bars)
+                or timestamps != sorted(timestamps)
+                or len(set(timestamps)) != len(timestamps)
+            ):
+                reason = "OHLCV history has insufficient, misidentified, or unordered bars"
+                self.agents = [AgentResult(
+                    agent_name="Technical Analysis Agent", status=AgentStatus.FAILED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="Historical market data failed contract validation.",
+                    errors=[reason], is_mock=history.is_mock,
+                )]
+                self.errors.append(f"{symbol}: {reason}")
+                self.journal.append({
+                    "type": "market_data_rejected", "symbol": symbol,
+                    "status": "invalid", "reason": reason,
+                    "source": history.source, "is_mock": history.is_mock,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                })
+                self.last_cycle_at = datetime.now(timezone.utc)
+                self._persist()
+                return
             latest = bars[-1]
             last_price = float(latest["close"])
             self.marks[symbol] = last_price
