@@ -169,12 +169,16 @@ class TradeOutcome(BaseModel):
     fees: Decimal = Field(ge=0)
     net_pnl: Decimal
     reason: str
+    policy_version: str | None = None
+    strategy: str | None = None
+    entry_at: datetime | None = None
     closed_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
     def validate_outcome(self):
-        if self.closed_at.tzinfo is None or self.closed_at.utcoffset() is None:
-            raise ValueError("closed_at must be timezone-aware")
+        for value in (self.entry_at, self.closed_at):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("outcome timestamps must be timezone-aware")
         if self.net_pnl != self.gross_pnl - self.fees:
             raise ValueError("net_pnl must equal gross_pnl minus fees")
         return self
