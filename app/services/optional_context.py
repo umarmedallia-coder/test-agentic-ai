@@ -18,7 +18,7 @@ async def _load_one(
     exchange: str,
     fetch: Callable[[], Awaitable[Any]],
     analyze: Callable[[Any], AgentResult],
-    timeout_seconds: int,
+    timeout_seconds: float,
     max_freshness_seconds: int,
 ) -> AgentResult:
     try:
@@ -95,7 +95,7 @@ async def load_optional_context(
     symbol: str,
     exchange: str,
     *,
-    timeout_seconds: int = 15,
+    timeout_seconds: float = 15,
     max_freshness_seconds: int = 86_400,
 ) -> tuple[AgentResult, AgentResult]:
     """Fetch fundamental and institutional snapshots concurrently.
@@ -103,7 +103,7 @@ async def load_optional_context(
     Each feed has an independent deadline and status. An unavailable optional feed never
     suppresses the other feed or fabricates data.
     """
-    if timeout_seconds < 1 or max_freshness_seconds < 1:
+    if timeout_seconds <= 0 or max_freshness_seconds < 1:
         raise ValueError("timeouts and freshness limits must be positive")
     return await asyncio.gather(
         _load_one(
