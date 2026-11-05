@@ -65,9 +65,11 @@ class TradingEngine:
         self.ledger.cash = Decimal(str(value))
 
     @property
-    def equity(self) -> float | None:
+    def equity(self) -> float:
         value = self.ledger.equity
-        return float(value) if value is not None else None
+        if value is None:
+            raise ValueError("portfolio equity unavailable because an open position has no valid mark")
+        return float(value)
 
     @property
     def unrealized_pnl(self) -> float | None:
