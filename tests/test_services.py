@@ -1,9 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
-from app.contracts import OHLCVBar, PaperFill, Signal
+from app.contracts import OHLCVBar, PaperFill, RelationshipEdge, Signal
 from app.services.corporate_actions import (
     ActionType,
     CorporateAction,
@@ -18,6 +18,7 @@ from app.services.news import (
     deduplicate_news,
     map_news_to_symbols,
     score_news,
+    map_news_impact,
 )
 from app.services.orchestrator import AgentOrchestrator
 from app.services.portfolio import PortfolioLedger
@@ -154,3 +155,47 @@ def test_portfolio_ledger_applies_split_and_dividend_cashflow():
     assert ledger.realized_pnl == Decimal("100")
     assert ledger.apply_dividend("ABC", Decimal("5"), action_id="dividend-1") == Decimal("0")
     assert ledger.cash == Decimal("9099")
+
+
+def test_news_impact_maps_only_evidenced_relationships_and_retains_conflicts():
+    now = datetime.now(UTC)
+    item = NewsItem(
+        headline="Company wins major order, profit rises, upgrade approval",
+        source="exchange", published_at=now, symbols=["BEL"],
+    )
+    impact = score_news(item)
+    edges = [
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="SUPPLIER",
+            relationship_type="supplier", transmission="same",
+            evidence_ids=["exchange-filing-1"], source="exchange",
+            valid_from=now - timedelta(days=10), confidence=0.9,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="COMPETITOR",
+            relationship_type="competitor", transmission="inverse",
+            evidence_ids=["exchange-filing-2"], source="exchange",
+            valid_from=now - timedelta(days=10), confidence=0.85,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="UNKNOWN",
+            relationship_type="customer", transmission="unknown",
+            evidence_ids=["exchange-filing-3"], source="exchange",
+            valid_from=now - timedelta(days=10), confidence=0.95,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="WEAK",
+            relationship_type="supplier", transmission="same",
+            evidence_ids=["weak-source"], source="unverified",
+            valid_from=now - timedelta(days=10), confidence=0.2,
+        ),
+    ]
+    mapped = map_news_impact(impact, edges, as_of=now)
+    by_symbol = {security.symbol: security for security in mapped.affected_securities}
+    assert by_symbol["BEL"].direction == "positive"
+    assert by_symbol["SUPPLIER"].direction == "positive"
+    assert by_symbol["COMPETITOR"].direction == "negative"
+    assert by_symbol["UNKNOWN"].direction == "uncertain"
+    assert "WEAK" not in by_symbol
+    assert mapped.evaluated_relationships == 3
+    assert mapped.rejected_relationships == 1
