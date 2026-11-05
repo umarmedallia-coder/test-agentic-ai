@@ -49,6 +49,35 @@ class PortfolioLedger:
         self.cash -= notional+fill.fees
         self._applied_fills.add(fill.fill_id)
 
+    def apply_split(
+        self, symbol: str, ratio_from: Decimal, ratio_to: Decimal,
+    ) -> tuple[int, Decimal] | None:
+        if ratio_from <= 0 or ratio_to <= 0:
+            raise ValueError("split ratios must be positive")
+        position = self.positions.get(symbol)
+        if position is None:
+            return None
+        adjusted_quantity = Decimal(position.quantity) * ratio_to / ratio_from
+        if adjusted_quantity != adjusted_quantity.to_integral_value():
+            raise ValueError("fractional split entitlement requires cash-in-lieu handling")
+        factor = ratio_from / ratio_to
+        position.quantity = int(adjusted_quantity)
+        position.average_entry *= factor
+        if position.mark is not None:
+            position.mark *= factor
+        return position.quantity, position.average_entry
+
+    def apply_dividend(self, symbol: str, cash_per_share: Decimal) -> Decimal:
+        if cash_per_share < 0:
+            raise ValueError("dividend amount cannot be negative")
+        position = self.positions.get(symbol)
+        if position is None:
+            return Decimal("0")
+        cashflow = Decimal(position.quantity) * cash_per_share
+        self.cash += cashflow
+        self.realized_pnl += cashflow
+        return cashflow
+
     def mark(self, symbol: str, price: Decimal) -> None:
         if price <= 0:
             raise ValueError("mark price must be positive")
