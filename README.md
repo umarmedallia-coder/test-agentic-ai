@@ -1,6 +1,6 @@
 # NSE/BSE Agentic Stock Engine
 
-Local Python paper-trading-first application. The current market-data adapter is deterministic mock data. There is no broker integration or live-order execution path.
+Local Python paper-trading-first application. The current market-data adapter is deterministic mock data. Its weekday session gate models 09:15-15:30 Asia/Kolkata but does not include exchange holidays or special sessions. There is no broker integration or live-order execution path.
 
 ## Install
 
