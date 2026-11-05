@@ -13,7 +13,7 @@ async def test_strategy_graph_retries_and_returns_stable_task_telemetry():
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise RuntimeError("temporary provider failure")
+            raise ConnectionError("temporary provider failure")
         return {"value": 42}
 
     graph = build_strategy_graph()
@@ -61,3 +61,21 @@ async def test_strategy_graph_marks_missing_handler_as_skipped():
     })
     assert result["results"][0]["status"] == "skipped"
     assert result["results"][0]["reason"] == "no strategy handler registered"
+
+
+@pytest.mark.asyncio
+async def test_strategy_graph_does_not_retry_permanent_errors():
+    calls = 0
+
+    def invalid_task():
+        nonlocal calls
+        calls += 1
+        raise ValueError("invalid input")
+
+    result = await build_strategy_graph().ainvoke({
+        "strategies": ["invalid"], "tasks": {"invalid": invalid_task},
+        "timeout_seconds": 2, "max_retries": 3, "results": [],
+    })
+    assert calls == 1
+    assert result["results"][0]["attempts"] == 1
+    assert "ValueError" in result["results"][0]["error"]
