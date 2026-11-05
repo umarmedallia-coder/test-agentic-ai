@@ -106,6 +106,8 @@ def build_news_signal(
         return None
     if impact.confidence < min_confidence or reference_price <= 0 or atr <= 0:
         return None
+    if impact.sentiment == 0:
+        return None
     entry = Decimal(str(reference_price))
     volatility = Decimal(str(atr))
     if impact.sentiment > 0:
