@@ -189,6 +189,7 @@ def map_news_impact(
             rejected += 1
             continue
         evaluated += 1
+        direction: Literal["positive", "negative", "mixed", "neutral", "uncertain"]
         if edge.transmission == "same":
             direction = direct_direction
         elif edge.transmission == "inverse":
