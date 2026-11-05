@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import datetime, timezone
 import math
 
@@ -7,9 +8,23 @@ from app.models import AgentResult, AgentStatus, Evidence, TradeIntent
 
 
 def analyze_technical(
-    symbol: str, exchange: str, bars: list[dict]
+    symbol: str, exchange: str, bars: list[dict],
+    policy: Mapping[str, float] | None = None, *, is_mock: bool = True,
 ) -> tuple[AgentResult, TradeIntent | None]:
-    """Deterministic indicator analysis. No language model generates prices or indicators."""
+    """Deterministic indicators and versioned entry parameters; no LLM creates prices."""
+    parameters = policy or {}
+    fast_period = int(parameters.get("ema_fast", 9))
+    slow_period = int(parameters.get("ema_slow", 21))
+    rsi_lower = float(parameters.get("rsi_lower", 50))
+    rsi_upper = float(parameters.get("rsi_upper", 75))
+    atr_stop_multiple = float(parameters.get("atr_stop_multiple", 2))
+    reward_risk = float(parameters.get("reward_risk", 1.5))
+    if not 2 <= fast_period < slow_period <= 200:
+        raise ValueError("EMA policy requires 2 <= fast < slow <= 200")
+    if not 0 < rsi_lower < rsi_upper < 100:
+        raise ValueError("RSI policy requires 0 < lower < upper < 100")
+    if not 0.5 <= atr_stop_multiple <= 5 or not 1 <= reward_risk <= 5:
+        raise ValueError("ATR stop and reward/risk policy are outside safe bounds")
     frame = pd.DataFrame(bars)
     required = {"open", "high", "low", "close", "volume"}
     if not required.issubset(frame.columns) or len(frame) < 35:
@@ -45,8 +60,8 @@ def analyze_technical(
         ), None
 
     close = numeric["close"]
-    ema9 = close.ewm(span=9, adjust=False).mean()
-    ema21 = close.ewm(span=21, adjust=False).mean()
+    ema_fast = close.ewm(span=fast_period, adjust=False).mean()
+    ema_slow = close.ewm(span=slow_period, adjust=False).mean()
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
@@ -75,19 +90,26 @@ def analyze_technical(
 
     last = float(close.iloc[-1])
     atr = float(atr14.iloc[-1])
-    ema9_value = float(ema9.iloc[-1])
-    ema21_value = float(ema21.iloc[-1])
+    ema_fast_value = float(ema_fast.iloc[-1])
+    ema_slow_value = float(ema_slow.iloc[-1])
     macd_value = float(macd.iloc[-1])
     macd_signal_value = float(macd_signal.iloc[-1])
-    if not all(math.isfinite(value) for value in (last, atr, ema9_value, ema21_value, macd_value, macd_signal_value, rsi_value)) or atr <= 0:
+    if not all(math.isfinite(value) for value in (last, atr, ema_fast_value, ema_slow_value, macd_value, macd_signal_value, rsi_value)) or atr <= 0:
         return AgentResult(
             agent_name="Technical Analysis Agent", status=AgentStatus.FAILED,
             symbol=symbol, exchange=exchange, conclusion="Indicator calculation unavailable",
             errors=["Indicator series contains unavailable values"],
         ), None
 
-    bullish = ema9_value > ema21_value and last > ema9_value and macd_value > macd_signal_value and 50 <= rsi_value <= 75
-    bearish = ema9_value < ema21_value and last < ema9_value and macd_value < macd_signal_value and 25 <= rsi_value <= 50
+    bullish = (
+        ema_fast_value > ema_slow_value and last > ema_fast_value
+        and macd_value > macd_signal_value and rsi_lower <= rsi_value <= rsi_upper
+    )
+    bearish = (
+        ema_fast_value < ema_slow_value and last < ema_fast_value
+        and macd_value < macd_signal_value
+        and 100 - rsi_upper <= rsi_value <= 100 - rsi_lower
+    )
     signal = "bullish" if bullish else "bearish" if bearish else "neutral"
     observed_at = frame["timestamp"].iloc[-1] if "timestamp" in frame.columns else datetime.now(timezone.utc)
     if isinstance(observed_at, str):
@@ -103,22 +125,35 @@ def analyze_technical(
         agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
         symbol=symbol, exchange=exchange, conclusion=f"{signal} multi-indicator assessment",
         findings={
-            "ema_9": ema9_value, "ema_21": ema21_value, "atr_14": atr,
-            "rsi_14": rsi_value, "macd": macd_value, "macd_signal": macd_signal_value,
+            "ema_9": ema_fast_value, "ema_21": ema_slow_value,
+            "ema_fast": ema_fast_value, "ema_slow": ema_slow_value,
+            "ema_fast_period": fast_period, "ema_slow_period": slow_period,
+            "atr_14": atr, "rsi_14": rsi_value,
+            "rsi_lower": rsi_lower, "rsi_upper": rsi_upper,
+            "atr_stop_multiple": atr_stop_multiple, "reward_risk": reward_risk,
+            "macd": macd_value, "macd_signal": macd_signal_value,
             "last_close": last, "average_volume_20": float(numeric["volume"].tail(20).mean()),
             "signal": signal,
         },
         evidence=[Evidence(
             source="OHLCV", observed_at=observed_at,
-            statement="EMA 9/21, ATR 14, RSI 14 and MACD 12/26/9 calculated",
-            provenance="deterministic mock adapter",
-            limitations=["Not a return forecast", "Mock data is synthetic"],
+            statement=f"EMA {fast_period}/{slow_period}, ATR 14, RSI 14 and MACD 12/26/9 calculated",
+            provenance="provider-supplied OHLCV",
+            limitations=["Deterministic indicator rules are not a return forecast"]
+                + (["Synthetic mock OHLCV"] if is_mock else []),
         )],
+        is_mock=is_mock,
     )
     if not bullish:
         return result, None
+    stop_distance = atr_stop_multiple * atr
+    if last <= stop_distance:
+        result.findings["signal"] = "neutral"
+        result.findings["rejection_reason"] = "ATR stop distance would produce a non-positive stop price"
+        return result, None
     return result, TradeIntent(
         symbol=symbol, exchange=exchange, entry_price=last,
-        stop_price=last - 2 * atr, target_price=last + 3 * atr, quantity=1,
+        stop_price=last - stop_distance,
+        target_price=last + stop_distance * reward_risk, quantity=1,
         confidence=0.5, source_agent="Technical Analysis Agent",
     )
