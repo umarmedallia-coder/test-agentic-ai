@@ -102,3 +102,24 @@ async def test_optional_llm_interpretation_is_structured_and_separate_from_impac
     assert result.findings["llm_interpretation"]["event_category"] == "order_win"
     assert result.findings["llm_usage"]["total_tokens"] == 50
     assert intent is not None
+
+
+class InvalidSymbolNewsProvider(NewsProvider):
+    async def get_stock_news(self, symbol, since=None):
+        now = datetime.now(UTC)
+        record = NewsRecord(
+            news_id="invalid-1", headline="Company wins order and profit rises",
+            body="Unmapped issuer", source="unverified-feed",
+            published_at=now, symbols=["NOTAREALSECURITY"],
+        )
+        return DataEnvelope(source="test", as_of=now, payload=[record])
+
+
+@pytest.mark.asyncio
+async def test_news_pipeline_rejects_invalid_symbol_and_preserves_unresolved_identity():
+    result, intent = await run_news_pipeline(
+        InvalidSymbolNewsProvider(), "BEL", 100, 2,
+    )
+    assert result.status == AgentStatus.SKIPPED
+    assert intent is None
+    assert result.findings["unresolved_symbols"] == ["NOTAREALSECURITY"]
