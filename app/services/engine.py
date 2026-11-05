@@ -370,7 +370,9 @@ class TradingEngine:
                 symbol=position.symbol, entry_price=entry_price,
                 exit_price=fill.price, quantity=fill.quantity,
                 gross_pnl=gross_decimal, fees=total_fees_decimal,
-                net_pnl=net_decimal, reason=reason, closed_at=fill.filled_at,
+                net_pnl=net_decimal, reason=reason,
+                policy_version=position.policy_version, strategy=position.strategy,
+                entry_at=position.opened_at, closed_at=fill.filled_at,
             )
             ledger_net = self.ledger.apply_sell(fill)
             self.realized_pnl = float(self.ledger.realized_pnl)
@@ -780,7 +782,8 @@ class TradingEngine:
                                 intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
                                 direction="long", quantity=fill.quantity, entry_price=float(fill.price),
                                 stop_price=intent.stop_price, target_price=intent.target_price,
-                                policy_version=intent.policy_version, entry_fees=float(fill.fees),
+                                policy_version=intent.policy_version, strategy=intent.strategy,
+                                entry_fees=float(fill.fees),
                                 entry_fill_id=fill.fill_id,
                             ))
                             self._persist()
