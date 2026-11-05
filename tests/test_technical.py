@@ -44,3 +44,25 @@ def test_technical_analysis_rejects_naive_market_timestamp():
     result, intent = analyze_technical("ABC", "NSE", bars)
     assert result.status == AgentStatus.FAILED
     assert intent is None
+
+
+def test_technical_analysis_uses_versioned_parameters_and_provider_provenance():
+    result, _ = analyze_technical(
+        "ABC", "NSE", make_bars(),
+        {"ema_fast": 5, "ema_slow": 30, "rsi_lower": 45,
+         "rsi_upper": 70, "atr_stop_multiple": 1.5, "reward_risk": 2.0},
+        is_mock=False,
+    )
+    assert result.findings["ema_fast_period"] == 5
+    assert result.findings["ema_slow_period"] == 30
+    assert result.findings["atr_stop_multiple"] == 1.5
+    assert result.findings["reward_risk"] == 2.0
+    assert result.is_mock is False
+    assert "Synthetic mock OHLCV" not in result.evidence[0].limitations
+
+
+def test_technical_analysis_rejects_unsafe_policy_parameters():
+    import pytest
+
+    with pytest.raises(ValueError, match="EMA policy"):
+        analyze_technical("ABC", "NSE", make_bars(), {"ema_fast": 21, "ema_slow": 9})
