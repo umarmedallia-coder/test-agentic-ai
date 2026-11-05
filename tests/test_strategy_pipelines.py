@@ -10,6 +10,8 @@ from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentStatus
 from app.llm.provider import LLMUsage
 from app.services.news import NewsInterpretation
+from app.llm.provider import LLMUsage
+from app.services.news import NewsInterpretation
 from app.services.strategy_pipelines import (
     run_corporate_actions_pipeline,
     run_news_pipeline,
@@ -123,3 +125,28 @@ async def test_news_pipeline_rejects_invalid_symbol_and_preserves_unresolved_ide
     assert result.status == AgentStatus.SKIPPED
     assert intent is None
     assert result.findings["unresolved_symbols"] == ["NOTAREALSECURITY"]
+
+
+@pytest.mark.asyncio
+async def test_news_pipeline_keeps_llm_interpretation_separate_from_trade_levels():
+    class FakeLLM:
+        async def generate_structured(
+            self, *, system_prompt, user_payload, output_model,
+        ):
+            assert output_model is NewsInterpretation
+            return NewsInterpretation(
+                event_category="order_win",
+                extracted_source_facts=["Company won a contract"],
+                interpretation="Potentially positive catalyst",
+                mentioned_entities=["Bharat Electronics"],
+                horizon="short_term",
+                risk_flags=[],
+            ), LLMUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30)
+
+    result, intent = await run_news_pipeline(
+        NewsProvider(), "BEL", 100, 2, FakeLLM(),
+    )
+    assert result.findings["llm_interpretation"]["event_category"] == "order_win"
+    assert result.findings["llm_usage"]["total_tokens"] == 30
+    assert intent is not None
+    assert intent.entry_price == 100
