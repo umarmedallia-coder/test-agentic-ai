@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     cycle_interval_seconds: int = Field(default=60, ge=5, le=3600)
     max_market_data_freshness_seconds: int = Field(default=86400, ge=1, le=604800)
     watchlist: list[str] = Field(default_factory=lambda: ["RELIANCE"])
+    discovery_max_symbols: int = Field(default=50, ge=1, le=500)
     default_exchange: Literal["NSE", "BSE"] = "NSE"
     llm_provider: Literal["disabled", "ollama", "openrouter"] = "disabled"
     llm_base_url: str = "http://localhost:11434"
