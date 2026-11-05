@@ -20,7 +20,7 @@ cp .env.example .env
 python -m app.cli ui
 ```
 
-The Streamlit dashboard binds to loopback at http://localhost:8501. Start acquires the local journal writer lock. Run cycle triggers one deterministic mock analysis cycle. Pause blocks new entries; Stop writes a lifecycle event and releases the lock.
+The Streamlit dashboard binds to loopback at http://localhost:8501. Start acquires the local journal writer lock and launches the automatic mock watchlist scheduler. Run cycle triggers an additional manual cycle. Pause blocks new entries while existing positions continue to be monitored; Stop drains the scheduler, writes a lifecycle snapshot and releases the lock.
 
 Headless automatic mode (Ctrl+C performs a graceful stop):
 
@@ -49,17 +49,17 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Bounded async fan-out helper, LangGraph fan-out/fan-in graph, paper outcome report, automatic watchlist scheduler and graceful scheduler drain.
 - Optional structured JSON-schema adapters for local Ollama and OpenRouter; disabled by default and not used to calculate prices or indicators.
 - Initial unit tests and GitHub Actions CI workflow.
-- Existing Streamlit overview and 13-agent roster; only the implemented technical agent is reported as active.
+- Streamlit overview with a process-wide cached controller, five-second telemetry refresh and truthful status reporting for the 13-agent roster. Technical, news and corporate-action pipeline statuses are surfaced separately.
 
 ## Known incomplete requirements
 
 This branch is **not yet the completed plan**. In particular:
 - Engine still uses the legacy mock OHLCV adapter; the new typed provider and Decimal portfolio ledger are not yet wired end-to-end. Engine positions are restored from journal snapshots, but event-by-event reconstruction is not complete.
 - No complete event-by-event journal replay, short-position lifecycle, or recovery from every possible crash point. Long paper exits use stop-first handling when both stop and target occur in one OHLC bar.
-- The LangGraph graph is a thin fan-out skeleton; it is not yet connected to selected modes, the shared risk manager, paper broker or portfolio ledger.
-- No combined-signal conflict resolution, duplicate symbol/offsetting intent reconciliation, complete news-to-stock relationship graph, or validated corporate-action entitlement/cash-flow accounting.
+- The LangGraph graph is a thin fan-out/fan-in skeleton and is not yet the engine's primary execution graph. The engine currently invokes its selected strategy pipelines sequentially.
+- Combined mode currently requires matching technical/news direction and a successful unblocked corporate-action feed, but it lacks weighted evidence attribution, multi-symbol conflict reconciliation and a complete news-to-stock relationship graph. Split/dividend calculations exist as helpers but are not yet applied to the portfolio ledger or cash-flow journal.
 - Risk management has per-trade sizing, open-position, daily-loss, drawdown, gross-exposure, lot-size and volume-participation checks, but still needs full exchange-calendar/event integration, sector/correlation exposure and more comprehensive daily P&L controls.
-- No background scheduler, durable single controller across Streamlit sessions/processes, circuit breakers, or graceful drain/cancellation.
+- Scheduler and process-wide Streamlit controller are implemented; the OS journal lock prevents a second process from becoming a writer. Circuit breakers, robust cancellation of every in-flight provider call and browser-level multi-tab acceptance tests remain incomplete.
 - Ollama/OpenRouter adapters are not yet wired into the news interpretation pipeline. No outcome persistence, chronological train/test evaluation, policy versioning/rollback, or UI/browser acceptance suite.
 - Agent roster names are not proof that those agents exist. Unimplemented agents must remain visibly unimplemented.
 
