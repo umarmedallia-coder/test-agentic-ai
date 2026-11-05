@@ -104,6 +104,7 @@ class Position(StrictModel):
     stop_price: float
     target_price: float
     policy_version: str
+    strategy: str = "unknown"
     opened_at: datetime = Field(default_factory=utc_now)
     entry_fees: float = Field(default=0, ge=0)
     entry_fill_id: str | None = None
