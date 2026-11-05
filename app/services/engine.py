@@ -70,6 +70,11 @@ class TradingEngine:
         self.agents: list[AgentResult] = []
         self.errors: list[str] = []
         self.last_cycle_at: datetime | None = None
+        self.last_data_as_of: datetime | None = None
+        self.last_data_freshness_seconds: int | None = None
+        self.last_data_source: str | None = None
+        self.last_data_is_mock = True
+        self.next_cycle_at: datetime | None = None
 
     @property
     def cash(self) -> float:
@@ -200,7 +205,11 @@ class TradingEngine:
                                 "error": f"{type(exc).__name__}: {exc}",
                                 "at": datetime.now(timezone.utc).isoformat(),
                             })
+            self.next_cycle_at = datetime.now(timezone.utc) + timedelta(
+                seconds=self.settings.cycle_interval_seconds,
+            )
             if self._scheduler_stop.wait(self.settings.cycle_interval_seconds):
+                self.next_cycle_at = None
                 break
 
     def pause_new_entries(self) -> None:
@@ -389,6 +398,10 @@ class TradingEngine:
             history = asyncio.run(self.provider.get_historical_prices(
                 symbol, now - timedelta(days=80), now, exchange,
             ))
+            self.last_data_as_of = history.as_of
+            self.last_data_freshness_seconds = history.freshness_seconds
+            self.last_data_source = history.source
+            self.last_data_is_mock = history.is_mock
             if (
                 history.status.value != "ok" or not history.payload
                 or history.freshness_seconds > self.settings.max_market_data_freshness_seconds
@@ -809,6 +822,7 @@ class TradingEngine:
                 self.journal.release()
             self._started = False
             self._scheduler_thread = None
+            self.next_cycle_at = None
             self.state = "stopped"
 
     def promote_paper_policy(
@@ -851,15 +865,42 @@ class TradingEngine:
         )
 
     def snapshot(self) -> dict:
+        try:
+            equity_value = self.equity
+            daily_pnl_value = self.daily_pnl
+        except ValueError:
+            # Missing marks remain unavailable; never render them as zero.
+            equity_value = None
+            daily_pnl_value = None
+        open_trades = []
+        for position in self.positions:
+            mark = self.marks.get(position.symbol)
+            unrealized = (
+                (mark - position.entry_price) * position.quantity
+                if mark is not None and position.direction == "long" else None
+            )
+            open_trades.append({
+                **position.model_dump(mode="json"),
+                "mark_price": mark,
+                "mark_as_of": self.last_data_as_of.isoformat() if mark is not None and self.last_data_as_of else None,
+                "unrealized_pnl": unrealized,
+                "mark_status": "available" if mark is not None else "missing",
+            })
         return {
-            "state": self.state, "mode": self.settings.strategy_mode, "is_mock": True,
-            "cash": self.cash, "equity": self.equity, "unrealized_pnl": self.unrealized_pnl,
-            "realized_pnl": self.realized_pnl, "daily_pnl": self.daily_pnl,
+            "state": self.state, "mode": self.settings.strategy_mode,
+            "is_mock": self.last_data_is_mock, "data_source": self.last_data_source,
+            "data_as_of": self.last_data_as_of,
+            "data_freshness_seconds": self.last_data_freshness_seconds,
+            "cash": self.cash, "equity": equity_value,
+            "unrealized_pnl": self.unrealized_pnl,
+            "realized_pnl": self.realized_pnl, "daily_pnl": daily_pnl_value,
             "outcome_count": len(self.outcomes),
             "active_policy": self.policy_registry.active.model_dump(mode="json"),
             "fees_paid": self.fees_paid,
-            "positions": self.positions, "outcomes": self.outcomes,
+            "positions": self.positions, "open_trades": open_trades,
+            "outcomes": self.outcomes,
             "agents": self.agents, "errors": self.errors,
-            "last_cycle_at": self.last_cycle_at, "paused": self.paused,
+            "last_cycle_at": self.last_cycle_at, "next_cycle_at": self.next_cycle_at,
+            "paused": self.paused,
             "scheduler_active": self._scheduler_thread is not None and self._scheduler_thread.is_alive(),
         }
