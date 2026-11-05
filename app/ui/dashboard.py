@@ -1,5 +1,6 @@
 """Two-page local Streamlit dashboard backed only by engine snapshots."""
 import streamlit as st
+from typing import Literal, cast
 
 from app.config import Settings
 from app.models import AgentStatus
@@ -46,7 +47,9 @@ if engine.state != "running":
         help="Mode changes apply to the next engine start; open positions retain their original policy.",
     )
     if selected_mode != engine.settings.strategy_mode:
-        engine.settings.strategy_mode = selected_mode
+        engine.settings.strategy_mode = cast(
+            Literal["technical", "news", "corporate_actions", "combined"], selected_mode,
+        )
 
 if page == "Overview":
     start_col, stop_col, pause_col, resume_col, cycle_col = st.columns(5)
