@@ -29,3 +29,20 @@ async def test_langgraph_fanout_fanin_returns_partial_results():
     by_name = {item["name"]:item for item in result["results"]}
     assert by_name["one"]["status"] == "succeeded"
     assert by_name["two"]["status"] == "failed"
+
+
+def test_risk_manager_enforces_daily_loss_and_lot_rounding(tmp_path):
+    settings = Settings(journal_dir=tmp_path)
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=95,
+        target_price=110, quantity=25,
+    )
+    manager = RiskManager(settings)
+    loss = manager.validate(intent, 100_000, -3_000, 0, 100_000)
+    assert not loss.accepted
+    lot = manager.validate(
+        intent, 100_000, 0, 0, 100_000, lot_size=10,
+        average_volume=100_000, max_participation_pct=0.01,
+    )
+    assert lot.accepted
+    assert lot.approved_quantity == 20
