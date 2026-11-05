@@ -380,8 +380,14 @@ class TradingEngine:
             history = asyncio.run(self.provider.get_historical_prices(
                 symbol, now - timedelta(days=80), now, exchange,
             ))
-            if history.status.value != "ok" or not history.payload:
-                reason = history.error or f"historical prices status: {history.status.value}"
+            if (
+                history.status.value != "ok" or not history.payload
+                or history.freshness_seconds > self.settings.max_market_data_freshness_seconds
+            ):
+                reason = history.error or (
+                    f"historical prices status: {history.status.value}; "
+                    f"freshness_seconds={history.freshness_seconds}"
+                )
                 self.agents = [AgentResult(
                     agent_name="Technical Analysis Agent", status=AgentStatus.FAILED,
                     symbol=symbol, exchange=exchange,
