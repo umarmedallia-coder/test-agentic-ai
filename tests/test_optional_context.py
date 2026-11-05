@@ -30,7 +30,8 @@ class OptionalProvider:
 
 def envelope(payload, *, status=DataStatus.OK, freshness=0):
     return DataEnvelope(source="test-feed", is_mock=False, as_of=datetime.now(timezone.utc),
-        status=status, freshness_seconds=freshness, payload=payload)
+        status=status, freshness_seconds=freshness, payload=payload,
+        error="source unavailable" if status == DataStatus.ERROR else None)
 
 
 @pytest.mark.asyncio
@@ -94,3 +95,14 @@ async def test_optional_feed_rejects_wrong_instrument_and_stale_envelope():
     )
     assert fundamental.status == AgentStatus.FAILED
     assert institutional.status == AgentStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_optional_context_distinguishes_error_from_empty_and_missing_payload():
+    provider = OptionalProvider(
+        envelope(None, status=DataStatus.ERROR),
+        envelope(None, status=DataStatus.OK),
+    )
+    fundamental, institutional = await load_optional_context(provider, "INFY", "NSE")
+    assert fundamental.status == AgentStatus.FAILED
+    assert institutional.status == AgentStatus.FAILED
