@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from app.config import Settings
+from app.contracts import DataEnvelope
 from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.journal import JournalError, JsonlJournal
@@ -58,6 +61,13 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
         lambda symbol, exchange, bars: (agent, intent),
     )
     first = TradingEngine(settings)
+
+    async def market_open(day):
+        return DataEnvelope(
+            source="test", as_of=datetime.now(UTC), payload={"is_open": True},
+        )
+
+    monkeypatch.setattr(first.provider, "get_trading_calendar", market_open)
     first.start()
     first.run_cycle()
     assert len(first.positions) == 1
