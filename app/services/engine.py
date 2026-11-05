@@ -315,6 +315,11 @@ class TradingEngine:
                             ),
                         },
                         "results": [],
+                    }, config={
+                        "max_concurrency": (
+                            self.settings.max_parallel_agents
+                            if self.settings.enable_parallel_execution else 1
+                        ),
                     })
 
                 graph_result = asyncio.run(execute_independent_strategies())
