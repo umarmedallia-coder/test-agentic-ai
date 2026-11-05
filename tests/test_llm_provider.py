@@ -51,3 +51,12 @@ async def test_openrouter_requires_api_key_without_leaking_it():
             user_payload={"headline": "example"},
             output_model=Interpretation,
         )
+
+
+def test_openrouter_settings_require_key_and_select_provider_url():
+    with pytest.raises(ValueError, match="LLM_API_KEY is required"):
+        Settings(llm_provider="openrouter")
+    settings = Settings(
+        llm_provider="openrouter", llm_api_key="test-key",
+    )
+    assert settings.llm_base_url == "https://openrouter.ai/api/v1"
