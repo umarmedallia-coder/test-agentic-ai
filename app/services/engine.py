@@ -7,7 +7,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.config import Settings
-from app.contracts import PaperFill, Signal, TradeOutcome
+from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
 from app.data.mock import MockMarketData
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
@@ -59,6 +59,7 @@ class TradingEngine:
         )
         self.equity_peak = settings.initial_capital_inr
         self._processed_intents: set[str] = set()
+        self.processed_corporate_actions: set[str] = set()
         self.agents: list[AgentResult] = []
         self.errors: list[str] = []
         self.last_cycle_at: datetime | None = None
@@ -124,6 +125,7 @@ class TradingEngine:
             )
         self.equity_peak = float(snapshot.get("equity_peak", self.settings.initial_capital_inr))
         self._processed_intents = set(snapshot.get("processed_intents", []))
+        self.processed_corporate_actions = set(snapshot.get("processed_corporate_actions", []))
 
     def _persist(self) -> None:
         self.journal.append({
@@ -141,6 +143,7 @@ class TradingEngine:
             "policy_history": self.policy_registry.snapshot(),
             "equity_peak": self.equity_peak,
             "processed_intents": sorted(self._processed_intents),
+            "processed_corporate_actions": sorted(self.processed_corporate_actions),
             "at": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -229,9 +232,13 @@ class TradingEngine:
                 if position is not None and action_type in {"split", "bonus"}:
                     if record.ratio_from is None or record.ratio_to is None:
                         raise ValueError("split/bonus action is missing its ratio")
-                    quantity, average_entry = self.ledger.apply_split(
+                    adjusted = self.ledger.apply_split(
                         record.symbol, record.ratio_from, record.ratio_to,
+                        action_id=record.action_id,
                     )
+                    if adjusted is None:
+                        raise ValueError("split action did not resolve an open ledger position")
+                    quantity, average_entry = adjusted
                     factor = float(record.ratio_from / record.ratio_to)
                     position.quantity = quantity
                     position.entry_price = float(average_entry)
@@ -248,7 +255,7 @@ class TradingEngine:
                     if position.opened_at.date() < record.ex_date.date():
                         cash_per_share = Decimal(str(record.cash_amount or 0))
                         cashflow = self.ledger.apply_dividend(
-                            record.symbol, cash_per_share,
+                            record.symbol, cash_per_share, action_id=record.action_id,
                         )
                         self.realized_pnl = float(self.ledger.realized_pnl)
                         self.daily_realized_pnl += float(cashflow)
