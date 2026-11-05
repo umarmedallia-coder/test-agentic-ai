@@ -171,6 +171,7 @@ class TradeOutcome(BaseModel):
     reason: str
     policy_version: str | None = None
     strategy: str | None = None
+    sector: str | None = None
     entry_at: datetime | None = None
     closed_at: datetime = Field(default_factory=utc_now)
 
