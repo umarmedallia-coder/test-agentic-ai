@@ -144,6 +144,9 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
     )
     assert engine.positions == []
     assert len(engine.outcomes) == 1
+    assert engine.outcomes[0].policy_version == "test"
+    assert engine.outcomes[0].strategy == "unknown"
+    assert engine.outcomes[0].entry_at is not None
     events = engine.journal.read_all()
     snapshots = [event for event in events if event["type"] == "portfolio_snapshot"]
     assert snapshots[-1]["positions"] == []
