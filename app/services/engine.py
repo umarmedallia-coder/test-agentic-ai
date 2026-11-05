@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from threading import RLock
+from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
 
 from app.config import Settings
@@ -23,6 +23,8 @@ class TradingEngine:
         self.risk = RiskManager(settings)
         self.broker = PaperBroker()
         self._lock = RLock()
+        self._scheduler_stop = Event()
+        self._scheduler_thread: Thread | None = None
         self._started = False
         self.state = "idle"
         self.paused = False
@@ -79,9 +81,11 @@ class TradingEngine:
             "at": datetime.now(timezone.utc).isoformat(),
         })
 
-    def start(self) -> None:
+    def start(self, automatic: bool = False) -> None:
         with self._lock:
             if self._started:
+                if automatic:
+                    self._start_scheduler()
                 return
             self.journal.acquire()
             try:
@@ -92,9 +96,39 @@ class TradingEngine:
                 })
                 self._started = True
                 self.state = "running"
+                if automatic:
+                    self._start_scheduler()
             except Exception:
                 self.journal.release()
                 raise
+
+    def _start_scheduler(self) -> None:
+        if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
+            return
+        self._scheduler_stop.clear()
+        self._scheduler_thread = Thread(
+            target=self._scheduler_loop, name="paper-cycle-scheduler", daemon=True,
+        )
+        self._scheduler_thread.start()
+
+    def _scheduler_loop(self) -> None:
+        while not self._scheduler_stop.is_set():
+            for symbol in self.settings.watchlist:
+                if self._scheduler_stop.is_set():
+                    break
+                try:
+                    self.run_cycle(symbol=symbol)
+                except Exception as exc:
+                    with self._lock:
+                        self.errors.append(f"{symbol}: {type(exc).__name__}: {exc}")
+                        if self._started:
+                            self.journal.append({
+                                "type": "scheduler_error", "symbol": symbol,
+                                "error": f"{type(exc).__name__}: {exc}",
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            })
+            if self._scheduler_stop.wait(self.settings.cycle_interval_seconds):
+                break
 
     def pause_new_entries(self) -> None:
         with self._lock:
@@ -214,6 +248,12 @@ class TradingEngine:
             self._persist()
 
     def stop(self) -> None:
+        self._scheduler_stop.set()
+        thread = self._scheduler_thread
+        if thread is not None and thread.is_alive() and thread is not current_thread():
+            thread.join(timeout=self.settings.agent_timeout_seconds)
+            if thread.is_alive():
+                raise RuntimeError("Scheduler did not drain before stop timeout")
         with self._lock:
             if self._started:
                 self._persist()
@@ -223,6 +263,7 @@ class TradingEngine:
                 })
                 self.journal.release()
             self._started = False
+            self._scheduler_thread = None
             self.state = "stopped"
 
     def snapshot(self) -> dict:
