@@ -264,6 +264,11 @@ class TradingEngine:
                     )
                 )
                 self.agents = [technical_agent, action_agent]
+                if event_blocked:
+                    self.journal.append({
+                        "type": "entry_blocked", "reason": "corporate_action",
+                        "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                    })
                 intent = None if event_blocked else technical_intent
             elif mode == "news":
                 atr = float(technical_agent.findings.get("atr_14", 0))
@@ -281,6 +286,11 @@ class TradingEngine:
                     )
                 )
                 self.agents = [technical_agent, news_agent, action_agent]
+                if event_blocked:
+                    self.journal.append({
+                        "type": "entry_blocked", "reason": "corporate_action",
+                        "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                    })
                 intent = None if event_blocked else news_intent
             elif mode == "corporate_actions":
                 self.agents = [AgentResult(
@@ -360,6 +370,11 @@ class TradingEngine:
                         errors=[action_task.get("error", "No result returned")],
                     )
                 self.agents = [technical_agent, news_agent, action_agent]
+                if action_blocked:
+                    self.journal.append({
+                        "type": "entry_blocked", "reason": "corporate_action",
+                        "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                    })
                 # Combined mode requires all independent evidence pipelines to succeed.
                 if (
                     technical_intent is not None
