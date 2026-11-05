@@ -6,6 +6,7 @@ import json
 from typing import Any, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from threading import BoundedSemaphore
 
 from pydantic import BaseModel
 
@@ -36,9 +37,13 @@ class OpenAICompatibleProvider:
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._semaphore = BoundedSemaphore(max_concurrency)
 
     def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        with self._semaphore:
+            return self._post_json_unlimited(path, body)
+
+    def _post_json_unlimited(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         if self.provider == "openrouter":
             if not self.api_key:
@@ -92,11 +97,10 @@ class OpenAICompatibleProvider:
                 },
             }
             path = "/chat/completions"
-        async with self._semaphore:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(self._post_json, path, body),
-                timeout=self.timeout_seconds + 1,
-            )
+        response = await asyncio.wait_for(
+            asyncio.to_thread(self._post_json, path, body),
+            timeout=self.timeout_seconds + 1,
+        )
         try:
             estimated_cost = None
             if self.provider == "ollama":
