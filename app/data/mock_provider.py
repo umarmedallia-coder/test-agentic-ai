@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from app.contracts import (\n    CompanyAnnouncement, CompanyProfile, CorporateActionRecord, DataEnvelope,\n    DataStatus, NewsRecord, OHLCVBar, Quote, RelationshipEdge,\n)
+from app.contracts import CompanyAnnouncement, CompanyProfile, CorporateActionRecord, DataEnvelope, DataStatus, NewsRecord, OHLCVBar, Quote, RelationshipEdge
 
 
 class MockMarketDataProvider:
