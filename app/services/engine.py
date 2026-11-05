@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import asyncio
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
 from uuid import uuid4
@@ -7,11 +8,16 @@ from zoneinfo import ZoneInfo
 from app.config import Settings
 from app.contracts import Signal
 from app.data.mock import MockMarketData
+from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
 from app.services.risk import RiskManager
 from app.services.technical import analyze_technical
+from app.services.strategy_pipelines import (
+    run_corporate_actions_pipeline,
+    run_news_pipeline,
+)
 
 
 class TradingEngine:
@@ -20,6 +26,7 @@ class TradingEngine:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.data = MockMarketData()
+        self.provider = MockMarketDataProvider()
         self.journal = JsonlJournal(settings.journal_dir)
         self.risk = RiskManager(settings)
         self.broker = PaperBroker()
@@ -209,47 +216,100 @@ class TradingEngine:
             self._roll_daily_pnl()
             self._close_triggered_positions(symbol, latest)
 
-            if self.settings.strategy_mode != "technical":
-                self.agents = [AgentResult(
-                    agent_name=f"{self.settings.strategy_mode.title()} Pipeline",
-                    status=AgentStatus.UNIMPLEMENTED,
-                    symbol=symbol, exchange=exchange,
-                    conclusion="Selected pipeline is not yet connected; no entry will be generated.",
-                    errors=["Fail-closed: strategy mode is not implemented end-to-end"],
-                )]
+            mode = self.settings.strategy_mode
+            technical_agent, technical_intent = analyze_technical(symbol, exchange, bars)
+            intent = None
+            if mode == "technical":
+                self.agents = [technical_agent]
+                intent = technical_intent
+            elif mode == "news":
+                atr = float(technical_agent.findings.get("atr_14", 0))
+                news_agent, intent = asyncio.run(
+                    run_news_pipeline(self.provider, symbol, last_price, atr)
+                )
+                self.agents = [technical_agent, news_agent]
+            elif mode == "corporate_actions":
+                action_agent, blocked = asyncio.run(
+                    run_corporate_actions_pipeline(
+                        self.provider, symbol, date.today(),
+                    )
+                )
+                self.agents = [action_agent]
+                if blocked:
+                    self.journal.append({
+                        "type": "entry_blocked", "reason": "corporate_action",
+                        "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                    })
             else:
-                agent, intent = analyze_technical(symbol, exchange, bars)
-                self.agents = [agent]
-                if intent is not None and not self.paused:
-                    if any(p.symbol == symbol for p in self.positions):
-                        self.journal.append({"type": "entry_rejected", "reason": "position already open",
-                                             "symbol": symbol, "at": datetime.now(timezone.utc).isoformat()})
-                    elif intent.id in self._processed_intents:
-                        self.journal.append({"type": "entry_rejected", "reason": "duplicate intent",
-                                             "intent_id": intent.id})
-                    else:
-                        average_volume = int(sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars)))
-                        decision = self.risk.validate(
-                            intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
-                            equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
-                            average_volume=average_volume,
+                atr = float(technical_agent.findings.get("atr_14", 0))
+                news_agent, news_intent = asyncio.run(
+                    run_news_pipeline(self.provider, symbol, last_price, atr)
+                )
+                action_agent, action_blocked = asyncio.run(
+                    run_corporate_actions_pipeline(
+                        self.provider, symbol, date.today(),
+                    )
+                )
+                self.agents = [technical_agent, news_agent, action_agent]
+                # Combined mode requires all independent evidence pipelines to succeed.
+                if (
+                    technical_intent is not None
+                    and news_intent is not None
+                    and news_intent.direction == technical_intent.direction
+                    and action_agent.status == AgentStatus.SUCCEEDED
+                    and not action_blocked
+                ):
+                    technical_intent.strategy = "combined"
+                    intent = technical_intent
+
+            if intent is not None and not self.paused:
+                if intent.direction != "long":
+                    self.journal.append({
+                        "type": "entry_rejected", "reason": "short paper execution is not enabled",
+                        "symbol": symbol, "intent_id": intent.id,
+                    })
+                elif any(position.symbol == symbol for position in self.positions):
+                    self.journal.append({
+                        "type": "entry_rejected", "reason": "position already open",
+                        "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                    })
+                elif intent.id in self._processed_intents:
+                    self.journal.append({
+                        "type": "entry_rejected", "reason": "duplicate intent",
+                        "intent_id": intent.id,
+                    })
+                else:
+                    average_volume = int(
+                        sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars))
+                    )
+                    decision = self.risk.validate(
+                        intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
+                        equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
+                        average_volume=average_volume,
+                    )
+                    self.journal.append({
+                        "type": "risk_decision", "intent": intent.model_dump(mode="json"),
+                        "decision": decision.model_dump(mode="json"),
+                    })
+                    self._processed_intents.add(intent.id)
+                    if decision.accepted:
+                        signal = Signal(
+                            strategy=intent.strategy, symbol=intent.symbol, exchange=intent.exchange,
+                            direction=intent.direction, entry=Decimal(str(intent.entry_price)),
+                            stop=Decimal(str(intent.stop_price)), target=Decimal(str(intent.target_price)),
+                            confidence=0.7, rationale=f"{intent.strategy} strategy signal",
                         )
-                        self.journal.append({
-                            "type": "risk_decision", "intent": intent.model_dump(mode="json"),
-                            "decision": decision.model_dump(mode="json"),
-                        })
-                        self._processed_intents.add(intent.id)
-                        if decision.accepted:
-                            signal = Signal(
-                                strategy=intent.strategy, symbol=intent.symbol, exchange=intent.exchange,
-                                direction="long", entry=Decimal(str(intent.entry_price)),
-                                stop=Decimal(str(intent.stop_price)), target=Decimal(str(intent.target_price)),
-                                confidence=0.7, rationale="EMA 9/21 technical signal",
-                            )
-                            fill = self.broker.execute(
-                                signal, decision.approved_quantity, Decimal(str(intent.entry_price))
-                            )
-                            self.cash -= float(fill.price) * fill.quantity + float(fill.fees)
+                        fill = self.broker.execute(
+                            signal, decision.approved_quantity, Decimal(str(intent.entry_price))
+                        )
+                        total_cost = float(fill.price) * fill.quantity + float(fill.fees)
+                        if total_cost > self.cash:
+                            self.journal.append({
+                                "type": "entry_rejected", "reason": "execution cost exceeds available cash",
+                                "intent_id": intent.id,
+                            })
+                        else:
+                            self.cash -= total_cost
                             self.fees_paid += float(fill.fees)
                             self.positions.append(Position(
                                 intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
@@ -258,6 +318,7 @@ class TradingEngine:
                                 policy_version=intent.policy_version, entry_fees=float(fill.fees),
                                 entry_fill_id=fill.fill_id,
                             ))
+                            self._persist()
                             self.journal.append({
                                 "type": "paper_fill", "fill": fill.model_dump(mode="json"),
                                 "intent_id": intent.id,
