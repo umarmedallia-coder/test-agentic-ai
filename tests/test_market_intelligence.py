@@ -99,5 +99,14 @@ async def test_engine_cycle_publishes_market_intelligence_agent(tmp_path):
     assert agents["Institutional Activity Agent"].status == AgentStatus.SKIPPED
     assert agents["Stock Discovery Agent"].status == AgentStatus.SUCCEEDED
     assert agents["Strategy Agent"].status == AgentStatus.SUCCEEDED
-    assert "Recommendation Synthesis Agent" in agents
+    assert agents["News Intelligence Agent"].status == AgentStatus.SKIPPED
+    assert agents["News-to-Stock Impact Mapping Agent"].status == AgentStatus.SKIPPED
+    expected_agents = {
+        "Market Intelligence Agent", "Technical Analysis Agent", "Fundamental Analysis Agent",
+        "News Intelligence Agent", "Corporate Actions Agent", "Institutional Activity Agent",
+        "Risk Management Agent", "Stock Discovery Agent", "Strategy Agent",
+        "Portfolio Intelligence Agent", "Debate/Critic Agent",
+        "Recommendation Synthesis Agent", "News-to-Stock Impact Mapping Agent",
+    }
+    assert expected_agents.issubset(agents)
     engine.stop()
