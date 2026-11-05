@@ -86,7 +86,8 @@ async def test_engine_cycle_publishes_market_intelligence_agent(tmp_path):
 
     engine = TradingEngine(Settings(journal_dir=tmp_path))
     engine.start()
-    engine.run_cycle()
+    import asyncio
+    await asyncio.to_thread(engine.run_cycle)
     market_agent = next(
         item for item in engine.agents
         if item.agent_name == "Market Intelligence Agent"
