@@ -268,7 +268,7 @@ def test_engine_opens_and_restores_short_paper_position(tmp_path, monkeypatch):
         lambda symbol, exchange, bars, policy=None, **kwargs: (technical_agent, short_intent),
     )
 
-    async def market_open(day):
+    async def market_open(day, exchange="NSE"):
         from app.contracts import DataEnvelope
         return DataEnvelope(
             source="test-calendar",
