@@ -107,12 +107,17 @@ def test_return_correlation_uses_timestamp_aligned_returns():
     candidate = []
     peer = []
     inverse = []
-    for index in range(25):
+    candidate_price = 100.0
+    inverse_price = 100.0
+    changes = [0.01, 0.02, -0.01, 0.03, -0.02] * 5
+    for index, change in enumerate([0.0, *changes]):
         timestamp = start + timedelta(days=index)
-        price = 100 * (1.01 ** index)
-        candidate.append({"timestamp": timestamp, "close": price})
-        peer.append({"timestamp": timestamp, "close": price * 2})
-        inverse.append({"timestamp": timestamp, "close": 100 * (0.99 ** index)})
+        if index:
+            candidate_price *= 1 + change
+            inverse_price *= 1 - change
+        candidate.append({"timestamp": timestamp, "close": candidate_price})
+        peer.append({"timestamp": timestamp, "close": candidate_price * 2})
+        inverse.append({"timestamp": timestamp, "close": inverse_price})
 
     assert return_correlation(candidate, peer) == pytest.approx(1.0)
     assert return_correlation(candidate, inverse) == pytest.approx(-1.0)
