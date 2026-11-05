@@ -41,3 +41,28 @@ def test_engine_start_stop_and_cycle(tmp_path):
     assert engine.journal.read_all()[0]["type"] == "engine_started"
     engine.stop()
     assert engine.state == "stopped"
+
+
+def test_engine_restores_open_positions_after_restart(tmp_path):
+    settings = Settings(journal_dir=tmp_path)
+    first = TradingEngine(settings)
+    first.start()
+    first.run_cycle()
+    saved_positions = len(first.positions)
+    saved_cash = first.cash
+    first.stop()
+
+    second = TradingEngine(settings)
+    second.start()
+    assert len(second.positions) == saved_positions
+    assert second.cash == saved_cash
+    second.stop()
+
+
+def test_unimplemented_mode_fails_closed(tmp_path):
+    engine = TradingEngine(Settings(journal_dir=tmp_path, strategy_mode="news"))
+    engine.start()
+    engine.run_cycle()
+    assert engine.agents[0].status.value == "unimplemented"
+    assert engine.positions == []
+    engine.stop()
