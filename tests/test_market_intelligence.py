@@ -94,4 +94,10 @@ async def test_engine_cycle_publishes_market_intelligence_agent(tmp_path):
     )
     assert market_agent.status in {AgentStatus.SUCCEEDED, AgentStatus.FAILED}
     assert "regime" in market_agent.findings
+    agents = {item.agent_name: item for item in engine.agents}
+    assert agents["Fundamental Analysis Agent"].status == AgentStatus.SKIPPED
+    assert agents["Institutional Activity Agent"].status == AgentStatus.SKIPPED
+    assert agents["Stock Discovery Agent"].status == AgentStatus.SUCCEEDED
+    assert agents["Strategy Agent"].status == AgentStatus.SUCCEEDED
+    assert "Recommendation Synthesis Agent" in agents
     engine.stop()
