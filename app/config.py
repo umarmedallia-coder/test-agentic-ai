@@ -29,4 +29,10 @@ class Settings(BaseSettings):
     def validate_limits(self) -> "Settings":
         if self.max_risk_per_trade_pct >= self.max_daily_loss_pct:
             raise ValueError("per-trade risk must be below daily loss limit")
+        normalized = [symbol.strip().upper() for symbol in self.watchlist]
+        if not normalized or any(not symbol for symbol in normalized):
+            raise ValueError("watchlist must contain non-empty symbols")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("watchlist symbols must be unique")
+        self.watchlist = normalized
         return self
