@@ -57,10 +57,13 @@ class PortfolioLedger:
 
     @property
     def unrealized_pnl(self) -> Decimal | None:
-        values = [p.unrealized_pnl for p in self.positions.values()]
-        if any(v is None for v in values):
-            return None
-        return sum(values, Decimal("0"))
+        total = Decimal("0")
+        for position in self.positions.values():
+            value = position.unrealized_pnl
+            if value is None:
+                return None
+            total += value
+        return total
 
     @property
     def equity(self) -> Decimal | None:
