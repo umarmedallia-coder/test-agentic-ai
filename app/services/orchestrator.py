@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from app.services.retry import is_retryable_error
+
 
 @dataclass
 class TaskTelemetry:
@@ -78,41 +80,72 @@ class AgentOrchestrator:
         telemetry = TaskTelemetry(name=name)
         self.telemetry[name] = telemetry
         breaker = self._breaker(name)
-        async with self._semaphore:
+        await self._semaphore.acquire()
+        deferred_release = False
+        try:
             for attempt in range(self.retries + 1):
                 if not breaker.allow_request():
                     telemetry.status = "circuit_open"
                     break
                 telemetry.status = "running"
                 telemetry.attempts = attempt + 1
+                worker: asyncio.Task[Any] | None = None
                 try:
                     if inspect.iscoroutinefunction(task):
                         result = await asyncio.wait_for(
                             task(), timeout=self.timeout_seconds,
                         )
                     else:
-                        result = await asyncio.wait_for(
-                            asyncio.to_thread(task), timeout=self.timeout_seconds,
-                        )
+                        worker = asyncio.create_task(asyncio.to_thread(task))
+                        try:
+                            result = await asyncio.wait_for(
+                                asyncio.shield(worker), timeout=self.timeout_seconds,
+                            )
+                        except asyncio.TimeoutError:
+                            telemetry.error = "synchronous agent timed out; worker cannot be force-cancelled"
+                            telemetry.status = "timed_out"
+                            breaker.record_failure()
+                            worker.add_done_callback(lambda _: self._semaphore.release())
+                            deferred_release = True
+                            return {
+                                "name": name, "status": "timed_out",
+                                "attempts": telemetry.attempts, "error": telemetry.error,
+                            }
                         if inspect.isawaitable(result):
                             result = await asyncio.wait_for(
                                 result, timeout=self.timeout_seconds,
                             )
                     breaker.record_success()
                     telemetry.status = "succeeded"
-                    return {"name": name, "status": "succeeded", "result": result}
+                    return {
+                        "name": name, "status": "succeeded",
+                        "attempts": telemetry.attempts, "result": result,
+                    }
                 except asyncio.TimeoutError:
                     telemetry.error = "agent timed out"
                     telemetry.status = "timed_out"
                     breaker.record_failure()
+                    if attempt >= self.retries:
+                        break
                 except asyncio.CancelledError:
                     telemetry.status = "cancelled"
+                    if worker is not None and not worker.done():
+                        worker.add_done_callback(lambda _: self._semaphore.release())
+                        deferred_release = True
                     raise
                 except Exception as exc:  # isolate one agent from its peers
                     telemetry.error = f"{type(exc).__name__}: {exc}"
                     telemetry.status = "failed"
                     breaker.record_failure()
-            return {"name": name, "status": telemetry.status, "error": telemetry.error}
+                    if attempt >= self.retries or not is_retryable_error(exc):
+                        break
+            return {
+                "name": name, "status": telemetry.status,
+                "attempts": telemetry.attempts, "error": telemetry.error,
+            }
+        finally:
+            if not deferred_release:
+                self._semaphore.release()
 
     async def run_parallel(self, tasks: dict[str, Callable[[], Any]]) -> list[dict[str, Any]]:
         if len(tasks) != len(set(tasks)):
