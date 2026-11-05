@@ -16,7 +16,7 @@ from app.agents.synthesis import synthesize_recommendation
 from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
 from app.data.contracts import MarketDataProvider
 from app.data.mock_provider import MockMarketDataProvider
-from app.models import AgentResult, AgentStatus, Position, RiskDecision
+from app.models import AgentResult, AgentStatus, Evidence, Position, RiskDecision
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
 from app.services.learning import (
@@ -946,9 +946,23 @@ class TradingEngine:
                             "candidate_sector": candidate_sector,
                             "sector_source": profile_feed.source if profile_feed else None,
                         },
+                        evidence=sector_evidence,
+                        is_mock=profile_feed.is_mock if profile_feed else True,
                         errors=decision.reasons,
                     )
                     risk_decision = decision
+                    sector_evidence = []
+                    if profile_feed is not None and profile_feed.payload is not None and candidate_sector:
+                        sector_evidence = [Evidence(
+                            source=profile_feed.source, observed_at=profile_feed.as_of,
+                            statement=f"Provider classifies {symbol} in sector {candidate_sector}.",
+                            provenance=profile_feed.source,
+                            limitations=(
+                                ["Synthetic mock sector classification"]
+                                if profile_feed.is_mock else
+                                ["Sector classifications can lag corporate-structure changes"]
+                            ),
+                        )]
                     self.journal.append({
                         "type": "risk_decision", "intent": intent.model_dump(mode="json"),
                         "decision": decision.model_dump(mode="json"),
