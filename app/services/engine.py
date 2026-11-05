@@ -203,8 +203,6 @@ class TradingEngine:
             gross_decimal = (fill.price - entry_price) * fill.quantity
             total_fees_decimal = Decimal(str(position.entry_fees)) + fill.fees
             net_decimal = gross_decimal - total_fees_decimal
-            gross = float(gross_decimal)
-            total_fees = float(total_fees_decimal)
             net = float(net_decimal)
             outcome = TradeOutcome(
                 fill_id=position.entry_fill_id or position.intent_id,
