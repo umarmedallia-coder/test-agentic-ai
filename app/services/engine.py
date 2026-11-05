@@ -239,6 +239,10 @@ class TradingEngine:
             self._close_triggered_positions(symbol, latest)
 
             mode = self.settings.strategy_mode
+            self.agents = [AgentResult(
+                agent_name="Technical Analysis Agent", status=AgentStatus.RUNNING,
+                symbol=symbol, exchange=exchange, conclusion="Calculating deterministic indicators.",
+            )]
             technical_agent, technical_intent = analyze_technical(symbol, exchange, bars)
             intent = None
             if mode == "technical":
@@ -246,11 +250,19 @@ class TradingEngine:
                 intent = technical_intent
             elif mode == "news":
                 atr = float(technical_agent.findings.get("atr_14", 0))
+                self.agents = [technical_agent, AgentResult(
+                    agent_name="News Intelligence Agent", status=AgentStatus.RUNNING,
+                    symbol=symbol, exchange=exchange, conclusion="Retrieving and scoring source news.",
+                )]
                 news_agent, intent = asyncio.run(
                     run_news_pipeline(self.provider, symbol, last_price, atr)
                 )
                 self.agents = [technical_agent, news_agent]
             elif mode == "corporate_actions":
+                self.agents = [AgentResult(
+                    agent_name="Corporate Actions Agent", status=AgentStatus.RUNNING,
+                    symbol=symbol, exchange=exchange, conclusion="Checking verified event records.",
+                )]
                 action_agent, blocked = asyncio.run(
                     run_corporate_actions_pipeline(
                         self.provider, symbol, datetime.now(ZoneInfo("Asia/Kolkata")).date(),
@@ -264,9 +276,24 @@ class TradingEngine:
                     })
             else:
                 atr = float(technical_agent.findings.get("atr_14", 0))
+                self.agents = [
+                    technical_agent,
+                    AgentResult(
+                        agent_name="News Intelligence Agent", status=AgentStatus.RUNNING,
+                        symbol=symbol, exchange=exchange, conclusion="Retrieving and scoring source news.",
+                    ),
+                    AgentResult(
+                        agent_name="Corporate Actions Agent", status=AgentStatus.WAITING,
+                        symbol=symbol, exchange=exchange, conclusion="Waiting for news pipeline.",
+                    ),
+                ]
                 news_agent, news_intent = asyncio.run(
                     run_news_pipeline(self.provider, symbol, last_price, atr)
                 )
+                self.agents = [technical_agent, news_agent, AgentResult(
+                    agent_name="Corporate Actions Agent", status=AgentStatus.RUNNING,
+                    symbol=symbol, exchange=exchange, conclusion="Checking verified event records.",
+                )]
                 action_agent, action_blocked = asyncio.run(
                     run_corporate_actions_pipeline(
                         self.provider, symbol, date.today(),
