@@ -492,6 +492,8 @@ class TradingEngine:
                             ),
                         },
                         "results": [],
+                        "timeout_seconds": self.settings.agent_timeout_seconds,
+                        "max_retries": self.settings.agent_max_retries,
                     }, config={
                         "max_concurrency": (
                             self.settings.max_parallel_agents
