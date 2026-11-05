@@ -136,3 +136,34 @@ def test_stop_first_exit_persists_closed_portfolio(tmp_path):
     assert len(recovered.outcomes) == 1
     assert recovered.learning_report().sample_count == 1
     recovered.stop()
+
+
+def test_closed_market_calendar_blocks_new_entries(tmp_path, monkeypatch):
+    intent = TradeIntent(
+        symbol="RELIANCE", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    agent = AgentResult(
+        agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
+        symbol="RELIANCE", conclusion="test signal",
+    )
+    monkeypatch.setattr(
+        "app.services.engine.analyze_technical",
+        lambda symbol, exchange, bars: (agent, intent),
+    )
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+
+    async def market_closed(day):
+        return DataEnvelope(
+            source="test", as_of=datetime.now(UTC), payload={"is_open": False},
+        )
+
+    monkeypatch.setattr(engine.provider, "get_trading_calendar", market_closed)
+    engine.start()
+    engine.run_cycle()
+    assert engine.positions == []
+    assert any(
+        event.get("reason") == "market calendar is closed or unavailable"
+        for event in engine.journal.read_all()
+    )
+    engine.stop()
