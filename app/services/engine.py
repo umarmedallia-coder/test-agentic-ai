@@ -899,17 +899,59 @@ class TradingEngine:
                         symbol=symbol, exchange=exchange,
                         conclusion="Applying centralized account and liquidity limits.",
                     ))
-                    current_symbol_exposure = sum(
-                        self.marks[position.symbol] * position.quantity
-                        for position in self.positions
-                        if position.symbol == intent.symbol and position.symbol in self.marks
+                    profile_feed = None
+                    profile_error = None
+                    try:
+                        profile_feed = asyncio.run(self.provider.get_company_profile(symbol))
+                    except Exception as exc:
+                        profile_error = f"{type(exc).__name__}: {exc}"
+                    candidate_sector = (
+                        profile_feed.payload.sector
+                        if profile_feed is not None and profile_feed.status.value == "ok"
+                        and profile_feed.freshness_seconds <= self.settings.max_market_data_freshness_seconds
+                        else None
                     )
-                    decision = self.risk.validate(
-                        intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
-                        equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
-                        current_symbol_exposure=current_symbol_exposure,
-                        average_volume=average_volume,
-                    )
+                    try:
+                        current_equity = self.equity
+                        current_daily_pnl = self.daily_pnl
+                    except ValueError as exc:
+                        decision = RiskDecision(
+                            accepted=False,
+                            reasons=[f"Portfolio valuation unavailable: {exc}"],
+                        )
+                    else:
+                        if not candidate_sector:
+                            decision = RiskDecision(
+                                accepted=False,
+                                reasons=[profile_error or "Verified sector classification is unavailable"],
+                            )
+                        else:
+                            current_symbol_exposure = sum(
+                                self.marks[position.symbol] * position.quantity
+                                for position in self.positions
+                                if position.symbol == intent.symbol and position.symbol in self.marks
+                            )
+                            current_sector_exposure = sum(
+                                self.marks[position.symbol] * position.quantity
+                                for position in self.positions
+                                if position.sector
+                                and position.sector.casefold() == candidate_sector.casefold()
+                            )
+                            unclassified_exposure = sum(
+                                self.marks[position.symbol] * position.quantity
+                                for position in self.positions if not position.sector
+                            )
+                            decision = self.risk.validate(
+                                intent, current_equity, current_daily_pnl,
+                                len(self.positions), self.cash,
+                                equity_peak=self.equity_peak,
+                                current_exposure=current_equity - self.cash,
+                                current_symbol_exposure=current_symbol_exposure,
+                                candidate_sector=candidate_sector,
+                                current_sector_exposure=current_sector_exposure,
+                                unclassified_exposure=unclassified_exposure,
+                                average_volume=average_volume,
+                            )
                     self.agents[-1] = AgentResult(
                         agent_name="Risk Management Agent",
                         status=AgentStatus.SUCCEEDED if decision.accepted else AgentStatus.FAILED,
@@ -918,6 +960,8 @@ class TradingEngine:
                         findings={
                             "approved_quantity": decision.approved_quantity,
                             "risk_amount": decision.risk_amount,
+                            "candidate_sector": candidate_sector,
+                            "sector_source": profile_feed.source if profile_feed else None,
                         },
                         errors=decision.reasons,
                     )
@@ -958,7 +1002,7 @@ class TradingEngine:
                                 direction="long", quantity=fill.quantity, entry_price=float(fill.price),
                                 stop_price=intent.stop_price, target_price=intent.target_price,
                                 policy_version=intent.policy_version, strategy=intent.strategy,
-                                entry_fees=float(fill.fees),
+                                sector=candidate_sector, entry_fees=float(fill.fees),
                                 entry_fill_id=fill.fill_id,
                             ))
                             self._persist()
