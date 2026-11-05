@@ -120,4 +120,5 @@ def analyze_technical(
     return result, TradeIntent(
         symbol=symbol, exchange=exchange, entry_price=last,
         stop_price=last - 2 * atr, target_price=last + 3 * atr, quantity=1,
+        confidence=0.5, source_agent="Technical Analysis Agent",
     )
