@@ -169,6 +169,7 @@ class TradingEngine:
 
     def _close_triggered_positions(self, symbol: str, bar: dict) -> None:
         remaining: list[Position] = []
+        close_events: list[dict] = []
         for position in self.positions:
             if position.symbol != symbol or position.direction != "long":
                 remaining.append(position)
@@ -197,12 +198,17 @@ class TradingEngine:
             self.realized_pnl += net
             self.daily_realized_pnl += net
             self.fees_paid += float(fill.fees)
-            self.journal.append({
+            close_events.append({
                 "type": "position_closed", "intent_id": position.intent_id,
                 "exit_fill": fill.model_dump(mode="json"), "reason": reason,
                 "net_pnl": net, "at": fill.filled_at.isoformat(),
             })
         self.positions = remaining
+        if close_events:
+            # Persist the resulting portfolio before appending descriptive close events.
+            self._persist()
+            for event in close_events:
+                self.journal.append(event)
 
     def run_cycle(self, symbol: str = "RELIANCE", exchange: str = "NSE") -> None:
         with self._lock:
