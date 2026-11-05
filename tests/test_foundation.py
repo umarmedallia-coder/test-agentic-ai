@@ -405,3 +405,18 @@ def test_risk_manager_rejects_non_finite_and_negative_account_inputs(tmp_path):
     assert "finite" in non_finite.reasons[0]
     assert not negative_cash.accepted
     assert any("cannot be negative" in reason for reason in negative_cash.reasons)
+
+
+def test_intent_idempotency_key_is_stable_for_the_same_completed_bar():
+    from datetime import timedelta
+
+    intent = TradeIntent(
+        symbol="RELIANCE", entry_price=100, stop_price=90,
+        target_price=120, quantity=1, policy_version="paper-v1",
+    )
+    timestamp = datetime.now(UTC)
+    first = TradingEngine._stable_intent_id(intent, timestamp)
+    repeated = TradingEngine._stable_intent_id(intent, timestamp)
+    next_bar = TradingEngine._stable_intent_id(intent, timestamp + timedelta(minutes=1))
+    assert first == repeated
+    assert first != next_bar
