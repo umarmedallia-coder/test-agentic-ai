@@ -98,12 +98,6 @@ class Evidence(BaseModel):
     facts: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(ge=0, le=1)
 
-    @model_validator(mode="after")
-    def validate_relationship_times(self):
-        for value in (self.valid_from, self.valid_until):
-            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-                raise ValueError("relationship timestamps must be timezone-aware")
-        return self
     url: str | None = None
 
     @model_validator(mode="after")
@@ -254,3 +248,10 @@ class RelationshipEdge(BaseModel):
     valid_from: datetime
     valid_until: datetime | None = None
     confidence: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_relationship_times(self):
+        for value in (self.valid_from, self.valid_until):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("relationship timestamps must be timezone-aware")
+        return self
