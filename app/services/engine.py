@@ -192,17 +192,17 @@ class TradingEngine:
                 if fill.fill_id in applied_fills:
                     continue
                 intent_id = event.get("intent_id")
-                position = next(
+                closing_position = next(
                     (item for item in self.positions if item.intent_id == intent_id),
                     None,
                 )
-                if position is None:
+                if closing_position is None:
                     raise RuntimeError(
                         f"Journal replay cannot find position for close event {intent_id}"
                     )
                 ledger_net = (
                     self.ledger.apply_sell(fill)
-                    if position.direction == "long"
+                    if closing_position.direction == "long"
                     else self.ledger.apply_cover(fill)
                 )
                 self.positions = [
@@ -214,8 +214,15 @@ class TradingEngine:
                 self.realized_pnl = float(self.ledger.realized_pnl)
                 self.daily_realized_pnl += float(ledger_net)
                 self.fees_paid += float(fill.fees)
-                self.marks[position.symbol] = float(fill.price)
+                self.marks[closing_position.symbol] = float(fill.price)
                 applied_fills.add(fill.fill_id)
+            elif event_type == "corporate_action_applied":
+                raw_record = event.get("record")
+                if not raw_record:
+                    continue
+                action = CorporateActionRecord.model_validate(raw_record)
+                if action.action_id not in self.processed_corporate_actions:
+                    self._apply_corporate_action_record(action)
 
 
     def _persist(self) -> None:
@@ -305,6 +312,57 @@ class TradingEngine:
                 self.paused = False
                 self.journal.append({"type": "entries_resumed", "at": datetime.now(timezone.utc).isoformat()})
 
+    def _apply_corporate_action_record(self, record: CorporateActionRecord) -> None:
+        """Apply one validated corporate action; safe to call during journal replay."""
+        if record.action_id in self.processed_corporate_actions:
+            return
+        position = next(
+            (item for item in self.positions if item.symbol == record.symbol), None,
+        )
+        action_type = record.action_type.lower()
+        if position is not None and action_type in {"split", "bonus"}:
+            if record.ratio_from is None or record.ratio_to is None:
+                raise ValueError("split/bonus action is missing its ratio")
+            if record.symbol not in self.ledger.positions:
+                raise ValueError("engine and ledger disagree about the open split position")
+            realized_before = self.ledger.realized_pnl
+            adjusted = self.ledger.apply_split(
+                record.symbol, record.ratio_from, record.ratio_to,
+                action_id=record.action_id,
+                cash_in_lieu_price=record.cash_in_lieu_price,
+            )
+            realized_delta = self.ledger.realized_pnl - realized_before
+            self.realized_pnl = float(self.ledger.realized_pnl)
+            self.daily_realized_pnl += float(realized_delta)
+            if adjusted is None:
+                self.positions = [
+                    item for item in self.positions if item.id != position.id
+                ]
+            else:
+                quantity, average_entry = adjusted
+                factor = float(record.ratio_from / record.ratio_to)
+                position.quantity = quantity
+                position.entry_price = float(average_entry)
+                position.entry_fees = float(
+                    self.ledger.positions[record.symbol].entry_fees
+                )
+                position.stop_price *= factor
+                position.target_price *= factor
+                if record.symbol in self.marks:
+                    self.marks[record.symbol] *= factor
+                    self.ledger.mark(
+                        record.symbol, Decimal(str(self.marks[record.symbol])),
+                    )
+        elif position is not None and action_type == "dividend":
+            if record.ex_date is not None and position.opened_at.date() < record.ex_date.date():
+                cash_per_share = Decimal(str(record.cash_amount or 0))
+                cashflow = self.ledger.apply_dividend(
+                    record.symbol, cash_per_share, action_id=record.action_id,
+                )
+                self.realized_pnl = float(self.ledger.realized_pnl)
+                self.daily_realized_pnl += float(cashflow)
+        self.processed_corporate_actions.add(record.action_id)
+
     def _apply_due_corporate_actions(
         self, action_agent: AgentResult, symbol: str, trading_day: date,
     ) -> bool:
@@ -321,67 +379,40 @@ class TradingEngine:
                     continue
                 if record.ex_date is None or record.ex_date.date() > trading_day:
                     continue
-                position = next(
+                action_type = record.action_type.lower()
+                if action_type in {"split", "bonus"} and (
+                    record.ratio_from is None or record.ratio_to is None
+                ):
+                    raise ValueError("split/bonus action is missing its ratio")
+                if action_type == "dividend" and record.cash_amount is None:
+                    raise ValueError("dividend action is missing its cash amount")
+                current_position = next(
                     (item for item in self.positions if item.symbol == record.symbol),
                     None,
                 )
-                action_type = record.action_type.lower()
-                if position is not None and action_type in {"split", "bonus"}:
-                    if record.ratio_from is None or record.ratio_to is None:
-                        raise ValueError("split/bonus action is missing its ratio")
+                if current_position is not None and action_type in {"split", "bonus"}:
                     if record.symbol not in self.ledger.positions:
                         raise ValueError("engine and ledger disagree about the open split position")
-                    realized_before = self.ledger.realized_pnl
-                    adjusted = self.ledger.apply_split(
-                        record.symbol, record.ratio_from, record.ratio_to,
-                        action_id=record.action_id,
-                        cash_in_lieu_price=record.cash_in_lieu_price,
+                    assert record.ratio_from is not None and record.ratio_to is not None
+                    adjusted_quantity = (
+                        Decimal(current_position.quantity) * record.ratio_to / record.ratio_from
                     )
-                    realized_delta = self.ledger.realized_pnl - realized_before
-                    self.realized_pnl = float(self.ledger.realized_pnl)
-                    self.daily_realized_pnl += float(realized_delta)
-                    if adjusted is None:
-                        self.positions = [
-                            item for item in self.positions if item.id != position.id
-                        ]
-                        self.journal.append({
-                            "type": "position_cash_in_lieu_settled",
-                            "action_id": record.action_id, "symbol": record.symbol,
-                            "cash_in_lieu_price": str(record.cash_in_lieu_price),
-                            "realized_pnl": str(realized_delta),
-                            "at": datetime.now(timezone.utc).isoformat(),
-                        })
-                    else:
-                        quantity, average_entry = adjusted
-                        factor = float(record.ratio_from / record.ratio_to)
-                        position.quantity = quantity
-                        position.entry_price = float(average_entry)
-                        position.entry_fees = float(
-                            self.ledger.positions[record.symbol].entry_fees
+                    if adjusted_quantity % 1 and (
+                        record.cash_in_lieu_price is None or record.cash_in_lieu_price <= 0
+                    ):
+                        raise ValueError(
+                            "fractional split entitlement requires a positive cash-in-lieu price"
                         )
-                        position.stop_price *= factor
-                        position.target_price *= factor
-                        if record.symbol in self.marks:
-                            self.marks[record.symbol] *= factor
-                            self.ledger.mark(
-                                record.symbol, Decimal(str(self.marks[record.symbol])),
-                            )
-                elif position is not None and action_type == "dividend":
-                    if position.opened_at.date() < record.ex_date.date():
-                        cash_per_share = Decimal(str(record.cash_amount or 0))
-                        cashflow = self.ledger.apply_dividend(
-                            record.symbol, cash_per_share, action_id=record.action_id,
-                        )
-                        self.realized_pnl = float(self.ledger.realized_pnl)
-                        self.daily_realized_pnl += float(cashflow)
-                self.processed_corporate_actions.add(record.action_id)
-                self._persist()
+                # Write-ahead record must be durable before any ledger/position mutation.
                 self.journal.append({
                     "type": "corporate_action_applied",
                     "action_id": record.action_id, "symbol": record.symbol,
                     "action_type": action_type,
+                    "record": record.model_dump(mode="json"),
                     "at": datetime.now(timezone.utc).isoformat(),
                 })
+                self._apply_corporate_action_record(record)
+                self._persist()
             except Exception as exc:
                 blocked = True
                 self.errors.append(
