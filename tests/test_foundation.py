@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.config import Settings
-from app.contracts import CorporateActionRecord, DataEnvelope, PaperFill
+from app.contracts import CompanyProfile, CorporateActionRecord, DataEnvelope, NewsRecord, PaperFill
 from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
 from app.services.learning import CandidateEvaluation, PaperPolicy
@@ -226,4 +226,80 @@ def test_corporate_action_restriction_blocks_technical_entry(tmp_path, monkeypat
         event.get("reason") == "corporate_action"
         for event in engine.journal.read_all()
     )
+    engine.stop()
+
+
+def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from app.data.mock_provider import MockMarketDataProvider
+
+    now = datetime.now(UTC)
+    technical_intent = TradeIntent(
+        symbol="BEL", entry_price=100, stop_price=95,
+        target_price=110, quantity=1, confidence=0.5,
+        source_agent="Technical Analysis Agent",
+    )
+    technical_agent = AgentResult(
+        agent_name="Technical Analysis Agent", status=AgentStatus.SUCCEEDED,
+        symbol="BEL", conclusion="deterministic technical signal",
+    )
+    monkeypatch.setattr(
+        "app.services.engine.analyze_technical",
+        lambda symbol, exchange, bars: (technical_agent, technical_intent),
+    )
+
+    class CombinedProvider(MockMarketDataProvider):
+        async def get_trading_calendar(self, day):
+            return DataEnvelope(
+                source="test", as_of=now, payload={"is_open": True},
+            )
+
+        async def get_stock_news(self, symbol, since=None):
+            return DataEnvelope(
+                source="test", as_of=now,
+                payload=[NewsRecord(
+                    news_id="news-1",
+                    headline="BEL profit rises, upgrade approval, order win",
+                    body="Bharat Electronics",
+                    source="exchange", published_at=now, symbols=[],
+                )],
+            )
+
+        async def get_company_profile(self, symbol):
+            return DataEnvelope(
+                source="test", as_of=now,
+                payload=CompanyProfile(
+                    symbol=symbol, company_name="Bharat Electronics",
+                    exchange="NSE", source="exchange",
+                ),
+            )
+
+        async def get_corporate_actions(self, symbol):
+            return DataEnvelope(
+                source="test", as_of=now,
+                payload=[CorporateActionRecord(
+                    action_id="future-dividend", symbol=symbol,
+                    action_type="dividend", announcement_date=now,
+                    ex_date=now + timedelta(days=10), source="exchange",
+                    verified=True, cash_amount=Decimal("1"),
+                )],
+            )
+
+    engine = TradingEngine(Settings(
+        strategy_mode="combined", journal_dir=tmp_path,
+    ))
+    engine.provider = CombinedProvider()
+    engine.start()
+    engine.run_cycle()
+
+    assert len(engine.positions) == 1
+    assert engine.positions[0].symbol == "BEL"
+    assert engine.positions[0].policy_version == "paper-baseline-v1"
+    assert {agent.agent_name for agent in engine.agents} >= {
+        "Technical Analysis Agent", "News Intelligence Agent",
+        "News-to-Stock Impact Mapping Agent", "Corporate Actions Agent",
+        "Risk Management Agent",
+    }
+    assert engine.positions[0].entry_price > 100
     engine.stop()
