@@ -18,6 +18,7 @@ from app.services.learning import (
 from app.services.intent_reconciliation import reconcile_intents
 from app.services.risk import RiskManager
 from app.services.portfolio import PortfolioLedger
+from app.services.portfolio_intelligence import analyze_portfolio
 from app.services.technical import analyze_technical
 from app.services.workflow import build_strategy_graph
 from app.llm.factory import build_llm_provider
@@ -690,6 +691,17 @@ class TradingEngine:
                                 "type": "paper_fill", "fill": fill.model_dump(mode="json"),
                                 "intent_id": intent.id,
                             })
+            portfolio_agent = analyze_portfolio(
+                self.positions, self.marks, self.equity, self.cash,
+                max_single_position_exposure_pct=(
+                    self.settings.max_single_position_exposure_pct
+                ),
+            )
+            self.agents = [
+                agent for agent in self.agents
+                if agent.agent_name != "Portfolio Intelligence Agent"
+            ]
+            self.agents.append(portfolio_agent)
             self.last_cycle_at = datetime.now(timezone.utc)
             self.equity_peak = max(self.equity_peak, self.equity)
             self._persist()
