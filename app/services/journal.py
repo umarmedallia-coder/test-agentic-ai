@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ class JournalError(RuntimeError):
 
 
 class JsonlJournal:
-    """Append-only journal with exclusive writer lock and corruption detection."""
+    """Append-only journal with OS-released advisory writer lock and corruption detection."""
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -19,19 +20,28 @@ class JsonlJournal:
         self._fd: int | None = None
 
     def acquire(self) -> None:
+        if self._fd is not None:
+            return
+        fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            self._fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.write(self._fd, str(os.getpid()).encode())
-        except FileExistsError as exc:
-            raise JournalError("Journal already has a writer; inspect lock ownership") from exc
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            os.close(fd)
+            raise JournalError("Journal already has a writer; another engine owns this journal") from exc
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        os.fsync(fd)
+        self._fd = fd
 
     def release(self) -> None:
         if self._fd is not None:
+            fcntl.flock(self._fd, fcntl.LOCK_UN)
             os.close(self._fd)
             self._fd = None
-            self.lock_path.unlink(missing_ok=True)
 
     def append(self, event: dict[str, Any]) -> None:
+        if self._fd is None:
+            raise JournalError("Journal append requires exclusive writer ownership")
         try:
             encoded = json.dumps(event, default=str, allow_nan=False)
             with self.path.open("a", encoding="utf-8") as stream:
