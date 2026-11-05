@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from threading import Event, RLock, Thread, current_thread
@@ -272,6 +273,17 @@ class TradingEngine:
                 })
         return blocked
 
+    @staticmethod
+    def _stable_intent_id(intent, bar_timestamp: datetime) -> str:
+        """Stable idempotency key for one strategy decision on one completed bar."""
+        parts = (
+            intent.symbol.upper(), intent.exchange.upper(), intent.strategy,
+            intent.direction, format(intent.entry_price, ".12g"),
+            format(intent.stop_price, ".12g"), format(intent.target_price, ".12g"),
+            intent.policy_version, bar_timestamp.isoformat(),
+        )
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
     def _news_mapping_agent(
         self, news_agent: AgentResult, symbol: str, exchange: str,
     ) -> AgentResult:
@@ -535,6 +547,7 @@ class TradingEngine:
 
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
+                intent.id = self._stable_intent_id(intent, latest["timestamp"])
             if intent is not None and not self.paused and not market_open:
                 self.journal.append({
                     "type": "entry_rejected", "reason": "market calendar is closed or unavailable",
@@ -588,6 +601,7 @@ class TradingEngine:
                     self._processed_intents.add(intent.id)
                     if decision.accepted:
                         signal = Signal(
+                            signal_id=intent.id,
                             strategy=intent.strategy, symbol=intent.symbol, exchange=intent.exchange,
                             direction=intent.direction, entry=Decimal(str(intent.entry_price)),
                             stop=Decimal(str(intent.stop_price)), target=Decimal(str(intent.target_price)),
