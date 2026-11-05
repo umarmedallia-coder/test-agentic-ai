@@ -133,7 +133,7 @@ async def test_timed_out_sync_worker_keeps_its_concurrency_slot_until_finished()
         active -= 1
         return "next"
 
-    runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.01, retries=2)
+    runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.03, retries=2)
     results = await runner.run_parallel({"slow": slow_sync, "next": next_task})
     by_name = {item["name"]: item for item in results}
     assert by_name["slow"]["status"] == "timed_out"
