@@ -74,7 +74,8 @@ async def run_news_pipeline(
         agent_name="News Intelligence Agent", status=AgentStatus.SUCCEEDED,
         symbol=symbol, conclusion="News impact evaluated using explicit company mapping.",
         findings={
-            "impact": selected.impact, "confidence": selected.confidence,
+            "sentiment": selected.sentiment, "impact": selected.impact,
+            "confidence": selected.confidence,
             "headline": selected.headline, "deduplicated_items": len(impacts),
         },
         evidence=[Evidence(
