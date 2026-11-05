@@ -11,6 +11,12 @@ def synthesize_recommendation(*, strategy: AgentResult, risk: RiskDecision | Non
         reasons.append("no validated trade intent supplied")
     if risk is None or not risk.accepted:
         reasons.extend(risk.reasons if risk else ["risk decision missing"])
+    elif risk.approved_quantity < 1:
+        reasons.append("risk gate approved no executable quantity")
+    if intent is not None and strategy.findings.get("source_directions"):
+        expected = set(strategy.findings["source_directions"].values())
+        if expected and intent.direction not in expected:
+            reasons.append("intent direction conflicts with strategy source evidence")
     if critic is not None and critic.findings.get("review_passed") is False:
         reasons.append("critic review has unresolved evidence issues")
     accepted = not reasons
