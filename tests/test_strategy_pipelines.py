@@ -10,8 +10,6 @@ from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentStatus
 from app.llm.provider import LLMUsage
 from app.services.news import NewsInterpretation
-from app.llm.provider import LLMUsage
-from app.services.news import NewsInterpretation
 from app.services.strategy_pipelines import (
     run_corporate_actions_pipeline,
     run_news_pipeline,
