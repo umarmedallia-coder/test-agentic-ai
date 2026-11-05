@@ -1162,25 +1162,29 @@ class TradingEngine:
                                 "intent_id": intent.id,
                             })
                         else:
+                            position = Position(
+                                intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
+                                direction=intent.direction, quantity=fill.quantity,
+                                entry_price=float(fill.price),
+                                stop_price=intent.stop_price, target_price=intent.target_price,
+                                policy_version=intent.policy_version, strategy=intent.strategy,
+                                sector=candidate_sector, opened_at=fill.filled_at,
+                                entry_fees=float(fill.fees), entry_fill_id=fill.fill_id,
+                            )
+                            # Write-ahead event: a crash before the following snapshot is replayable.
+                            self.journal.append({
+                                "type": "paper_fill", "fill": fill.model_dump(mode="json"),
+                                "position": position.model_dump(mode="json"),
+                                "intent_id": intent.id,
+                            })
                             if intent.direction == "short":
                                 self.ledger.apply_short(fill)
                             else:
                                 self.ledger.apply_buy(fill)
                             self.ledger.mark(symbol, Decimal(str(last_price)))
                             self.fees_paid += float(fill.fees)
-                            self.positions.append(Position(
-                                intent_id=intent.id, symbol=intent.symbol, exchange=intent.exchange,
-                                direction=intent.direction, quantity=fill.quantity, entry_price=float(fill.price),
-                                stop_price=intent.stop_price, target_price=intent.target_price,
-                                policy_version=intent.policy_version, strategy=intent.strategy,
-                                sector=candidate_sector, entry_fees=float(fill.fees),
-                                entry_fill_id=fill.fill_id,
-                            ))
+                            self.positions.append(position)
                             self._persist()
-                            self.journal.append({
-                                "type": "paper_fill", "fill": fill.model_dump(mode="json"),
-                                "intent_id": intent.id,
-                            })
                     elif decision.accepted:
                         self.journal.append({
                             "type": "entry_rejected", "reason": "recommendation synthesis rejected candidate",
