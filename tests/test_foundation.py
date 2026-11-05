@@ -293,7 +293,11 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
     engine.start()
     engine.run_cycle()
 
-    assert len(engine.positions) == 1
+    assert len(engine.positions) == 1, {
+        "agents": [agent.model_dump(mode="json") for agent in engine.agents],
+        "errors": engine.errors,
+        "events": engine.journal.read_all(),
+    }
     assert engine.positions[0].symbol == "BEL"
     assert engine.positions[0].policy_version == "paper-baseline-v1"
     assert {agent.agent_name for agent in engine.agents} >= {
