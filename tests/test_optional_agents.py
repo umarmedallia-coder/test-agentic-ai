@@ -61,10 +61,12 @@ def test_strategy_requires_every_selected_source_and_blocks_conflict():
         conclusion="news", findings={"direction": "short"})
     actions = AgentResult(agent_name="Corporate Actions Agent", status=AgentStatus.SUCCEEDED,
         conclusion="clear", findings={"blocked": False})
-    conflict = evaluate_strategy(mode="combined", horizon="intraday", results=[technical, news, actions])
+    market = AgentResult(agent_name="Market Intelligence Agent", status=AgentStatus.SUCCEEDED,
+        conclusion="risk-on context", findings={"regime": "risk_on"})
+    conflict = evaluate_strategy(mode="combined", horizon="intraday", results=[technical, news, actions, market])
     assert conflict.findings["conflict"] is True
     assert conflict.findings["candidate_allowed"] is False
-    incomplete = evaluate_strategy(mode="combined", horizon="intraday", results=[technical, actions])
+    incomplete = evaluate_strategy(mode="combined", horizon="intraday", results=[technical, actions, market])
     assert incomplete.findings["missing_sources"] == ["News Intelligence Agent"]
 
 
