@@ -11,6 +11,7 @@ def test_risk_manager_rejects_drawdown_and_liquidity(tmp_path):
     intent = TradeIntent(symbol="ABC",entry_price=100,stop_price=95,target_price=110,quantity=10)
     risk = RiskManager(settings)
     decision = risk.validate(intent,100_000,0,0,100_000,equity_peak=120_000,
+                             candidate_sector="Industrials",
                              average_volume=100,max_participation_pct=.01)
     assert not decision.accepted
     assert any("drawdown" in reason.lower() for reason in decision.reasons)
@@ -42,6 +43,7 @@ def test_risk_manager_enforces_daily_loss_and_lot_rounding(tmp_path):
     assert not loss.accepted
     lot = manager.validate(
         intent, 100_000, 0, 0, 100_000, lot_size=10,
+        candidate_sector="Industrials",
         average_volume=100_000, max_participation_pct=0.01,
     )
     assert lot.accepted
@@ -72,3 +74,27 @@ async def test_langgraph_strategy_nodes_execute_concurrently():
     assert started == 2
     assert len(result["results"]) == 2
     assert all(item["status"] == "succeeded" for item in result["results"])
+
+
+def test_risk_manager_enforces_sector_concentration_and_classification(tmp_path):
+    settings = Settings(journal_dir=tmp_path, max_sector_exposure_pct=0.40)
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=95,
+        target_price=110, quantity=10,
+    )
+    manager = RiskManager(settings)
+    concentrated = manager.validate(
+        intent, 100_000, 0, 1, 100_000,
+        candidate_sector="Energy", current_sector_exposure=39_500,
+    )
+    assert not concentrated.accepted
+    assert any("sector concentration" in reason.lower() for reason in concentrated.reasons)
+    unknown = manager.validate(intent, 100_000, 0, 0, 100_000)
+    assert not unknown.accepted
+    assert any("sector classification" in reason.lower() for reason in unknown.reasons)
+    unclassified = manager.validate(
+        intent, 100_000, 0, 1, 100_000,
+        candidate_sector="Energy", unclassified_exposure=1_000,
+    )
+    assert not unclassified.accepted
+    assert any("unclassified sector" in reason.lower() for reason in unclassified.reasons)
