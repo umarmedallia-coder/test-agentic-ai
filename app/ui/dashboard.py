@@ -147,6 +147,10 @@ if page == "Overview":
         st.dataframe(snapshot["strategy_performance"], use_container_width=True)
         if not snapshot["strategy_attribution_reconciles"]:
             st.warning("Strategy-level net P&L does not reconcile to completed account outcomes.")
+        st.subheader("Sector attribution")
+        st.dataframe(snapshot["sector_performance"], use_container_width=True)
+        if not snapshot["sector_attribution_reconciles"]:
+            st.warning("Sector-level net P&L does not reconcile to completed account outcomes.")
         st.subheader("Learning review")
         report = engine.learning_report()
         st.write(
