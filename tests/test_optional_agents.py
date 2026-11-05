@@ -7,7 +7,7 @@ from app.agents.institutional_activity import analyze_institutional_activity
 from app.agents.stock_discovery import discover_stocks
 from app.agents.strategy import evaluate_strategy
 from app.agents.synthesis import synthesize_recommendation
-from app.models import AgentResult, AgentStatus, Evidence, RiskDecision, TradeIntent
+from app.models import AgentResult, AgentStatus, RiskDecision, TradeIntent
 
 NOW = datetime.now(timezone.utc)
 
