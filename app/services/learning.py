@@ -199,8 +199,8 @@ def evaluate_candidate(
     if training and baseline and training[-1].closed_at >= baseline[0].closed_at:
         reasons.append("chronological leakage between training and baseline validation")
     if candidate and baseline and (
-        candidate[0].closed_at != baseline[0].closed_at
-        or candidate[-1].closed_at != baseline[-1].closed_at
+        [item.closed_at for item in candidate]
+        != [item.closed_at for item in baseline]
     ):
         reasons.append("candidate and baseline validation windows do not match")
     candidate_pnl = sum((item.net_pnl for item in candidate), Decimal("0"))
