@@ -7,10 +7,14 @@ st.set_page_config(page_title="Stock Engine", layout="wide")
 st.title("NSE/BSE Paper Trading Engine")
 st.caption("PAPER TRADING · MOCK DATA · LIVE ORDERS DISABLED")
 
-if "engine" not in st.session_state:
-    st.session_state.engine = TradingEngine(Settings())
-engine: TradingEngine = st.session_state.engine
 
+@st.cache_resource
+def get_engine() -> TradingEngine:
+    """One controller per Streamlit process, shared across browser sessions."""
+    return TradingEngine(Settings())
+
+
+engine = get_engine()
 start_col, stop_col, pause_col, resume_col, cycle_col = st.columns(5)
 if start_col.button("Start", type="primary", disabled=engine.state == "running"):
     try:
@@ -30,22 +34,36 @@ if cycle_col.button("Run cycle", disabled=engine.state != "running"):
         st.error(str(exc))
 
 snapshot = engine.snapshot()
-a, b, c, d = st.columns(4)
+a, b, c, d, e = st.columns(5)
 a.metric("Engine", snapshot["state"])
 b.metric("Cash", f"₹{snapshot['cash']:,.2f}")
 c.metric("Equity", f"₹{snapshot['equity']:,.2f}")
-d.metric("Open positions", len(snapshot["positions"]))
-st.info(f"Mode: {snapshot['mode']} · Data: MOCK · Last cycle: {snapshot['last_cycle_at'] or 'not run'}")
+d.metric("Realized P&L", f"₹{snapshot['realized_pnl']:,.2f}")
+e.metric("Open positions", len(snapshot["positions"]))
+st.info(
+    f"Mode: {snapshot['mode']} · Data: MOCK · "
+    f"Last cycle: {snapshot['last_cycle_at'] or 'not run'}"
+)
+st.caption(
+    f"Unrealized P&L: ₹{snapshot['unrealized_pnl']:,.2f} · "
+    f"Fees paid: ₹{snapshot['fees_paid']:,.2f} · "
+    f"Entries paused: {snapshot['paused']}"
+)
 st.subheader("Open paper positions")
-st.dataframe([p.model_dump(mode="json") for p in snapshot["positions"]], use_container_width=True)
+st.dataframe(
+    [position.model_dump(mode="json") for position in snapshot["positions"]],
+    use_container_width=True,
+)
 st.subheader("Agent Activity")
-roster = ["Market Intelligence Agent", "Technical Analysis Agent", "Fundamental Analysis Agent",
-          "News Intelligence Agent", "Corporate Actions Agent", "Institutional Activity Agent",
-          "Risk Management Agent", "Stock Discovery Agent", "Strategy Agent",
-          "Portfolio Intelligence Agent", "Debate/Critic Agent",
-          "Recommendation Synthesis Agent", "News-to-Stock Impact Mapping Agent"]
+roster = [
+    "Market Intelligence Agent", "Technical Analysis Agent", "Fundamental Analysis Agent",
+    "News Intelligence Agent", "Corporate Actions Agent", "Institutional Activity Agent",
+    "Risk Management Agent", "Stock Discovery Agent", "Strategy Agent",
+    "Portfolio Intelligence Agent", "Debate/Critic Agent",
+    "Recommendation Synthesis Agent", "News-to-Stock Impact Mapping Agent",
+]
 for name in roster:
-    result = next((a for a in snapshot["agents"] if a.agent_name == name), None)
+    result = next((agent for agent in snapshot["agents"] if agent.agent_name == name), None)
     st.write(f"**{name}** — {result.status.value if result else 'unimplemented'}")
     if result:
         st.caption(result.conclusion)
