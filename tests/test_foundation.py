@@ -351,6 +351,7 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
             ],
         },
     )
+    engine.start()
     assert not engine._apply_due_corporate_actions(agent, "ABC", now.date())
     assert engine.positions[0].quantity == 20
     assert engine.positions[0].entry_price == 50
@@ -365,6 +366,7 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
     engine._apply_due_corporate_actions(agent, "ABC", now.date())
     assert engine.positions[0].quantity == 20
     assert engine.ledger.cash == Decimal("9039")
+    engine.stop()
 
 
 def test_risk_manager_enforces_configured_gross_exposure_cap(tmp_path):
