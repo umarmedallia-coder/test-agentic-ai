@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     max_open_positions: int = Field(default=5, ge=1, le=100)
     cycle_interval_seconds: int = Field(default=60, ge=5, le=3600)
     watchlist: list[str] = Field(default_factory=lambda: ["RELIANCE"])
+    default_exchange: Literal["NSE", "BSE"] = "NSE"
 
     @model_validator(mode="after")
     def validate_limits(self) -> "Settings":
