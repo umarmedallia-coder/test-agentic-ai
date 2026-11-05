@@ -71,7 +71,7 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     second.stop()
 
 
-def test_unimplemented_mode_fails_closed(tmp_path):
+def test_news_mode_skips_when_mock_feed_is_empty(tmp_path):
     engine = TradingEngine(Settings(journal_dir=tmp_path, strategy_mode="news"))
     engine.start()
     engine.run_cycle()
