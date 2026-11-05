@@ -365,3 +365,41 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
     engine._apply_due_corporate_actions(agent, "ABC", now.date())
     assert engine.positions[0].quantity == 20
     assert engine.ledger.cash == Decimal("9039")
+
+
+def test_risk_manager_enforces_configured_gross_exposure_cap(tmp_path):
+    settings = Settings(
+        journal_dir=tmp_path, initial_capital_inr=100_000,
+        max_gross_exposure_pct=0.80,
+    )
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=10,
+    )
+    manager = RiskManager(settings)
+    at_limit = manager.validate(
+        intent, 100_000, 0, 0, 100_000,
+        current_exposure=80_000, average_volume=100_000,
+    )
+    crossing_limit = manager.validate(
+        intent, 100_000, 0, 0, 100_000,
+        current_exposure=79_500, average_volume=100_000,
+    )
+    assert not at_limit.accepted
+    assert any("gross exposure" in reason.lower() for reason in at_limit.reasons)
+    assert not crossing_limit.accepted
+    assert any("would be exceeded" in reason for reason in crossing_limit.reasons)
+
+
+def test_risk_manager_rejects_non_finite_and_negative_account_inputs(tmp_path):
+    manager = RiskManager(Settings(journal_dir=tmp_path))
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    non_finite = manager.validate(intent, float("nan"), 0, 0, 100_000)
+    negative_cash = manager.validate(intent, 100_000, 0, 0, -1)
+    assert not non_finite.accepted
+    assert "finite" in non_finite.reasons[0]
+    assert not negative_cash.accepted
+    assert any("cannot be negative" in reason for reason in negative_cash.reasons)
