@@ -278,7 +278,7 @@ def test_combined_mode_runs_parallel_evidence_and_reconciles_intents(tmp_path, m
             return DataEnvelope(
                 source="test", as_of=now,
                 payload=CompanyProfile(
-                    symbol=symbol, company_name="Bharat Electronics",
+                    symbol=symbol, company_name="Bharat Electronics", sector="Industrials",
                     exchange="NSE", source="exchange",
                 ),
             )
