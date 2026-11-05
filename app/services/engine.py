@@ -7,6 +7,13 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.config import Settings
+from app.agents.contracts import DiscoveryCandidate
+from app.agents.critic import critique_evidence
+from app.agents.fundamental import analyze_fundamentals
+from app.agents.institutional_activity import analyze_institutional_activity
+from app.agents.stock_discovery import discover_stocks
+from app.agents.strategy import evaluate_strategy
+from app.agents.synthesis import synthesize_recommendation
 from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
@@ -456,6 +463,51 @@ class TradingEngine:
                 symbol=symbol, exchange=exchange, conclusion="Calculating deterministic indicators.",
             )]
             technical_agent, technical_intent = analyze_technical(symbol, exchange, bars)
+            fundamental_feed = asyncio.run(self.provider.get_fundamental_snapshot(symbol, exchange))
+            if fundamental_feed.status.value == "ok" and fundamental_feed.payload is not None:
+                fundamental_agent = analyze_fundamentals(fundamental_feed.payload)
+            else:
+                fundamental_agent = AgentResult(
+                    agent_name="Fundamental Analysis Agent", status=AgentStatus.SKIPPED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="Optional fundamental snapshot is unavailable; no values were inferred.",
+                    findings={"feed_status": fundamental_feed.status.value,
+                              "source": fundamental_feed.source,
+                              "warnings": fundamental_feed.warnings},
+                    is_mock=fundamental_feed.is_mock,
+                )
+            institutional_feed = asyncio.run(
+                self.provider.get_institutional_activity(symbol, exchange)
+            )
+            if institutional_feed.status.value == "ok" and institutional_feed.payload is not None:
+                institutional_agent = analyze_institutional_activity(institutional_feed.payload)
+            else:
+                institutional_agent = AgentResult(
+                    agent_name="Institutional Activity Agent", status=AgentStatus.SKIPPED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="Optional institutional-flow snapshot is unavailable; no values were inferred.",
+                    findings={"feed_status": institutional_feed.status.value,
+                              "source": institutional_feed.source,
+                              "warnings": institutional_feed.warnings},
+                    is_mock=institutional_feed.is_mock,
+                )
+            average_volume = int(
+                sum(int(row["volume"]) for row in bars[-20:]) / min(20, len(bars))
+            )
+            atr_value = float(technical_agent.findings.get("atr_14", 0))
+            ema_gap = abs(float(technical_agent.findings.get("ema_9", 0)) -
+                          float(technical_agent.findings.get("ema_21", 0)))
+            signal_label = technical_agent.findings.get("signal", "unknown")
+            trend_direction = signal_label if signal_label in {"bullish", "bearish"} else "sideways"
+            discovery_candidate = DiscoveryCandidate(
+                symbol=symbol, exchange=exchange, last_price=last_price,
+                average_daily_turnover=average_volume * last_price,
+                atr_pct=min(100.0, atr_value / last_price * 100.0),
+                trend_direction=trend_direction,
+                trend_strength=min(1.0, ema_gap / atr_value) if atr_value > 0 else 0.0,
+                data_as_of=latest["timestamp"], source=history.source, is_mock=history.is_mock,
+            )
+            discovery_agent = discover_stocks([discovery_candidate])
             intent = None
             if mode == "technical":
                 action_agent, event_blocked = asyncio.run(
@@ -610,6 +662,28 @@ class TradingEngine:
                         intent = reconciliation.accepted[0]
                         intent.strategy = "combined"
 
+            strategy_agent = evaluate_strategy(
+                mode=mode, horizon=self.settings.trading_horizon, results=self.agents,
+                policy_version=self.policy_registry.active.version,
+            )
+            self.agents.extend([
+                fundamental_agent, institutional_agent, discovery_agent, strategy_agent,
+            ])
+            critic_required = bool(
+                strategy_agent.findings.get("conflict")
+                or any(agent.findings.get("unresolved_symbols")
+                       or agent.findings.get("rejected_relationships") for agent in self.agents)
+            )
+            critic_agent = (
+                critique_evidence(self.agents)
+                if critic_required else AgentResult(
+                    agent_name="Debate/Critic Agent", status=AgentStatus.SKIPPED,
+                    symbol=symbol, exchange=exchange,
+                    conclusion="No configured contradiction or weak-evidence trigger; review not required.",
+                )
+            )
+            self.agents.append(critic_agent)
+            risk_decision = None
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
                 intent.id = self._stable_intent_id(intent, latest["timestamp"])
@@ -659,6 +733,7 @@ class TradingEngine:
                         },
                         errors=decision.reasons,
                     )
+                    risk_decision = decision
                     self.journal.append({
                         "type": "risk_decision", "intent": intent.model_dump(mode="json"),
                         "decision": decision.model_dump(mode="json"),
@@ -708,6 +783,11 @@ class TradingEngine:
                 if agent.agent_name != "Portfolio Intelligence Agent"
             ]
             self.agents.append(portfolio_agent)
+            synthesis_agent = synthesize_recommendation(
+                strategy=strategy_agent, risk=risk_decision, intent=intent,
+                critic=critic_agent if critic_agent.status == AgentStatus.SUCCEEDED else None,
+            )
+            self.agents.append(synthesis_agent)
             self.last_cycle_at = datetime.now(timezone.utc)
             self.equity_peak = max(self.equity_peak, self.equity)
             self._persist()
