@@ -204,6 +204,73 @@ class TradingEngine:
                 self.paused = False
                 self.journal.append({"type": "entries_resumed", "at": datetime.now(timezone.utc).isoformat()})
 
+    def _apply_due_corporate_actions(
+        self, action_agent: AgentResult, symbol: str, trading_day: date,
+    ) -> bool:
+        """Apply verified ex-date split/dividend effects once; return a fail-closed block."""
+        blocked = action_agent.status == AgentStatus.FAILED
+        raw_actions = action_agent.findings.get("actions", [])
+        for raw in raw_actions:
+            try:
+                record = CorporateActionRecord.model_validate(raw)
+                if record.action_id in self.processed_corporate_actions:
+                    continue
+                if not record.verified:
+                    blocked = True
+                    continue
+                if record.ex_date is None or record.ex_date.date() > trading_day:
+                    continue
+                position = next(
+                    (item for item in self.positions if item.symbol == record.symbol),
+                    None,
+                )
+                action_type = record.action_type.lower()
+                if position is not None and action_type in {"split", "bonus"}:
+                    if record.ratio_from is None or record.ratio_to is None:
+                        raise ValueError("split/bonus action is missing its ratio")
+                    quantity, average_entry = self.ledger.apply_split(
+                        record.symbol, record.ratio_from, record.ratio_to,
+                    )
+                    factor = float(record.ratio_from / record.ratio_to)
+                    position.quantity = quantity
+                    position.entry_price = float(average_entry)
+                    position.stop_price *= factor
+                    position.target_price *= factor
+                    if position.mark is not None:
+                        position.mark *= factor
+                    if record.symbol in self.marks:
+                        self.marks[record.symbol] *= factor
+                        self.ledger.mark(
+                            record.symbol, Decimal(str(self.marks[record.symbol])),
+                        )
+                elif position is not None and action_type == "dividend":
+                    if position.opened_at.date() < record.ex_date.date():
+                        cash_per_share = Decimal(str(record.cash_amount or 0))
+                        cashflow = self.ledger.apply_dividend(
+                            record.symbol, cash_per_share,
+                        )
+                        self.realized_pnl = float(self.ledger.realized_pnl)
+                        self.daily_realized_pnl += float(cashflow)
+                self.processed_corporate_actions.add(record.action_id)
+                self.journal.append({
+                    "type": "corporate_action_applied",
+                    "action_id": record.action_id, "symbol": record.symbol,
+                    "action_type": action_type,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                blocked = True
+                self.errors.append(
+                    f"corporate action {raw.get('action_id', 'unknown')}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                self.journal.append({
+                    "type": "corporate_action_failed",
+                    "symbol": symbol, "error": str(exc),
+                    "at": datetime.now(timezone.utc).isoformat(),
+                })
+        return blocked
+
     def _news_mapping_agent(
         self, news_agent: AgentResult, symbol: str, exchange: str,
     ) -> AgentResult:
