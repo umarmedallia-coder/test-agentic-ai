@@ -38,7 +38,7 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 
 ## Implemented in this branch
 
-- Validated runtime configuration and foundational typed contracts.
+- Validated runtime configuration and foundational typed contracts. `TradingEngine` accepts an injected `MarketDataProvider`; the default remains deterministic mock data, so a future MySQL/exchange adapter can be connected without changing strategy or risk logic.
 - Canonical typed OHLCV, quote, calendar, news, announcement, corporate-action, company-profile and relationship provider contracts; deterministic mock adapter carries explicit source and mock provenance, and unsupported mock feeds return EMPTY status.
 - Deterministic EMA, ATR 14, RSI 14 and MACD 12/26/9 technical analysis; active immutable paper-policy parameters control EMA periods, RSI thresholds, ATR stops and reward/risk.
 - Market Intelligence Agent retrieves benchmark returns and labels risk-on/risk-off/mixed context only when the required NIFTY and BANK NIFTY observations agree; stale, unavailable and non-finite data fail closed. It never generates a trade intent.

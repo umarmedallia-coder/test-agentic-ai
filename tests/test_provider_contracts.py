@@ -38,3 +38,20 @@ async def test_mock_company_resolution_is_exact_not_fuzzy():
     unknown = await provider.resolve_company_entity("Bharat Electronic")
     assert resolved.payload == "BEL"
     assert unknown.status == DataStatus.EMPTY
+
+
+def test_trading_engine_accepts_an_injected_market_data_provider(tmp_path):
+    from app.config import Settings
+    from app.services.engine import TradingEngine
+
+    provider = MockMarketDataProvider(seed=99)
+    engine = TradingEngine(Settings(journal_dir=tmp_path), provider=provider)
+    assert engine.provider is provider
+
+
+def test_trading_engine_defaults_to_mock_provider(tmp_path):
+    from app.config import Settings
+    from app.services.engine import TradingEngine
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    assert isinstance(engine.provider, MockMarketDataProvider)

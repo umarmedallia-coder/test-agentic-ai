@@ -10,12 +10,11 @@ from app.config import Settings
 from app.agents.contracts import DiscoveryCandidate
 from app.services.optional_context import load_optional_context
 from app.agents.critic import critique_evidence
-from app.agents.fundamental import analyze_fundamentals
-from app.agents.institutional_activity import analyze_institutional_activity
 from app.agents.stock_discovery import discover_stocks
 from app.agents.strategy import evaluate_strategy
 from app.agents.synthesis import synthesize_recommendation
 from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
+from app.data.contracts import MarketDataProvider
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position, RiskDecision
 from app.services.execution import PaperBroker
@@ -40,9 +39,12 @@ from app.services.strategy_pipelines import (
 class TradingEngine:
     """Single-process paper engine with journal snapshot recovery and fail-closed modes."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, provider: MarketDataProvider | None = None,
+    ) -> None:
         self.settings = settings
-        self.provider = MockMarketDataProvider()
+        # Production adapters can be injected without coupling engine logic to a data store.
+        self.provider: MarketDataProvider = provider if provider is not None else MockMarketDataProvider()
         self.llm_provider = build_llm_provider(settings)
         self.journal = JsonlJournal(settings.journal_dir)
         self.risk = RiskManager(settings)
