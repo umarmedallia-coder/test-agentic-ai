@@ -148,6 +148,12 @@ _ALLOWED_STRATEGY_PARAMETERS: dict[str, tuple[float, float]] = {
 
 
 def evaluate_outcomes(outcomes: list[TradeOutcome], policy_version: str) -> LearningReport:
+    tagged_outcomes = [outcome for outcome in outcomes if outcome.policy_version is not None]
+    if tagged_outcomes:
+        outcomes = [
+            outcome for outcome in tagged_outcomes
+            if outcome.policy_version == policy_version
+        ]
     if not outcomes:
         return LearningReport(
             sample_count=0, win_rate=0, net_pnl=Decimal("0"),
