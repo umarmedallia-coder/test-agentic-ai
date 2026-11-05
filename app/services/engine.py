@@ -735,9 +735,15 @@ class TradingEngine:
                         symbol=symbol, exchange=exchange,
                         conclusion="Applying centralized account and liquidity limits.",
                     ))
+                    current_symbol_exposure = sum(
+                        self.marks[position.symbol] * position.quantity
+                        for position in self.positions
+                        if position.symbol == intent.symbol and position.symbol in self.marks
+                    )
                     decision = self.risk.validate(
                         intent, self.equity, self.daily_pnl, len(self.positions), self.cash,
                         equity_peak=self.equity_peak, current_exposure=self.equity - self.cash,
+                        current_symbol_exposure=current_symbol_exposure,
                         average_volume=average_volume,
                     )
                     self.agents[-1] = AgentResult(
