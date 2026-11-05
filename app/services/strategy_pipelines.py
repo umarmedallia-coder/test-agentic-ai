@@ -1,12 +1,13 @@
 """Independent news and corporate-action strategy pipelines with fail-closed outputs."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.contracts import CorporateActionRecord
 from app.data.contracts import MarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence, TradeIntent
 from app.services.corporate_actions import ActionType, CorporateAction, blocks_new_entry
+from app.services.relationship_mapper import expand_related_symbols
 from app.services.news import (
     NewsItem,
     build_news_signal,
@@ -84,6 +85,7 @@ async def run_news_pipeline(
             "sentiment": selected.sentiment, "impact_score": selected.impact_score,
             "confidence": selected.confidence,
             "headline": selected.headline, "deduplicated_items": len(impacts),
+            "related_symbols": [mapping.model_dump(mode="json") for mapping in related_symbols],
             "affected_securities": [item.model_dump(mode="json") for item in mapped_impact.affected_securities],
             "evaluated_relationships": mapped_impact.evaluated_relationships,
             "rejected_relationships": mapped_impact.rejected_relationships,
