@@ -47,6 +47,7 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Paper fill simulator with fee/slippage configuration and idempotent signal key.
 - Decimal-based portfolio ledger with mark-to-market and duplicate-fill protection.
 - Bounded async fan-out helper, LangGraph fan-out/fan-in graph, paper outcome report, automatic watchlist scheduler and graceful scheduler drain.
+- Optional structured JSON-schema adapters for local Ollama and OpenRouter; disabled by default and not used to calculate prices or indicators.
 - Initial unit tests and GitHub Actions CI workflow.
 - Existing Streamlit overview and 13-agent roster; only the implemented technical agent is reported as active.
 
@@ -59,7 +60,7 @@ This branch is **not yet the completed plan**. In particular:
 - No combined-signal conflict resolution, duplicate symbol/offsetting intent reconciliation, complete news-to-stock relationship graph, or validated corporate-action entitlement/cash-flow accounting.
 - Risk management has per-trade sizing, open-position, daily-loss, drawdown, gross-exposure, lot-size and volume-participation checks, but still needs full exchange-calendar/event integration, sector/correlation exposure and more comprehensive daily P&L controls.
 - No background scheduler, durable single controller across Streamlit sessions/processes, circuit breakers, or graceful drain/cancellation.
-- No provider-backed Ollama/OpenRouter adapter, outcome persistence, chronological train/test evaluation, policy versioning/rollback, or UI/browser acceptance suite.
+- Ollama/OpenRouter adapters are not yet wired into the news interpretation pipeline. No outcome persistence, chronological train/test evaluation, policy versioning/rollback, or UI/browser acceptance suite.
 - Agent roster names are not proof that those agents exist. Unimplemented agents must remain visibly unimplemented.
 
 Mock data is synthetic and cannot establish strategy accuracy or profitability. No return target is promised. Live trading remains deliberately absent. Do not use this branch for financial decisions until critical risk, accounting, persistence and lifecycle acceptance tests pass.
