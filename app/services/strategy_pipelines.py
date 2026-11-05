@@ -1,7 +1,7 @@
 """Independent news and corporate-action strategy pipelines with fail-closed outputs."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 from app.contracts import CorporateActionRecord
 from app.data.contracts import MarketDataProvider
