@@ -10,7 +10,7 @@ def discover_stocks(candidates: list[DiscoveryCandidate], *, min_turnover: float
     if min_turnover < 0 or max_atr_pct <= 0 or max_age_hours <= 0 or limit < 1:
         raise ValueError("invalid discovery thresholds")
     now = datetime.now(timezone.utc)
-    ranked = []
+    ranked: list[dict[str, float | str | bool]] = []
     rejected = {}
     for item in candidates:
         reasons = []
@@ -30,7 +30,7 @@ def discover_stocks(candidates: list[DiscoveryCandidate], *, min_turnover: float
         ranked.append({"symbol": item.symbol, "exchange": item.exchange, "score": round(score, 2),
             "direction": item.trend_direction, "turnover": item.average_daily_turnover,
             "atr_pct": item.atr_pct, "source": item.source, "is_mock": item.is_mock})
-    ranked.sort(key=lambda row: (-row["score"], row["symbol"], row["exchange"]))
+    ranked.sort(key=lambda row: (-float(row["score"]), str(row["symbol"]), str(row["exchange"])))
     return AgentResult(agent_name="Stock Discovery Agent", status=AgentStatus.SUCCEEDED,
         conclusion=f"Ranked {len(ranked)} eligible candidates; discovery does not authorize orders.",
         findings={"candidates": ranked[:limit], "rejected": rejected,
