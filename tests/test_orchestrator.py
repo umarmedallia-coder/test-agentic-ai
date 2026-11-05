@@ -36,7 +36,7 @@ async def test_orchestrator_retries_and_records_attempt_count():
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            raise RuntimeError("transient")
+            raise ConnectionError("transient")
         return "recovered"
 
     runner = AgentOrchestrator(max_parallel=1, retries=1)
@@ -92,3 +92,51 @@ async def test_agent_circuit_breaker_opens_and_recovers():
     recovered = await runner.run_parallel({"provider": healthy})
     assert recovered[0]["status"] == "succeeded"
     assert runner.breakers["provider"].state == "closed"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_retry_permanent_errors():
+    attempts = 0
+
+    async def invalid():
+        nonlocal attempts
+        attempts += 1
+        raise ValueError("invalid input")
+
+    runner = AgentOrchestrator(max_parallel=1, retries=3)
+    result = await runner.run_parallel({"invalid": invalid})
+    assert result[0]["status"] == "failed"
+    assert result[0]["attempts"] == 1
+    assert attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_timed_out_sync_worker_keeps_its_concurrency_slot_until_finished():
+    import time
+
+    active = 0
+    peak = 0
+
+    def slow_sync():
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        time.sleep(0.08)
+        active -= 1
+        return "late"
+
+    async def next_task():
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return "next"
+
+    runner = AgentOrchestrator(max_parallel=1, timeout_seconds=0.01, retries=2)
+    results = await runner.run_parallel({"slow": slow_sync, "next": next_task})
+    by_name = {item["name"]: item for item in results}
+    assert by_name["slow"]["status"] == "timed_out"
+    assert by_name["slow"]["attempts"] == 1
+    assert by_name["next"]["status"] == "succeeded"
+    assert peak == 1
