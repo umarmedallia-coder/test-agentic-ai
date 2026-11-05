@@ -41,7 +41,8 @@ The UI Start button and default CLI mode run the configured watchlist automatica
 - Validated runtime configuration and foundational typed contracts.
 - Canonical typed OHLCV, quote, calendar, news, announcement, corporate-action, company-profile and relationship provider contracts; deterministic mock adapter carries explicit source and mock provenance, and unsupported mock feeds return EMPTY status.
 - Deterministic EMA 9/21, ATR 14, RSI 14 and MACD 12/26/9 technical analysis.
-- Shared risk sizing with configurable gross-exposure cap, finite-input validation, append-only JSONL journal and exclusive writer lock.
+- Shared risk sizing with configurable gross and per-symbol exposure caps, finite-input validation, append-only JSONL journal and exclusive writer lock.
+- Portfolio Intelligence Agent computes marked gross exposure, cash ratio, per-symbol concentration and missing-mark diagnostics; single-symbol concentration is enforced by the central risk gate.
 - News normalization, exact alias mapping, duplicate suppression, separate sentiment/materiality scores, and evidence-backed one-hop relationship transmission (same/inverse/mixed/unknown). News signals require separately supplied quote and ATR values.
 - Corporate-action schema validation, conservative event-date entry blocks, and idempotent verified split/bonus/dividend settlement for open paper positions.
 - Paper fill simulator with fee/slippage configuration and stable per-bar intent/fill idempotency keys.
