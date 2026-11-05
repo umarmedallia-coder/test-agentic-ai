@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+from uuid import uuid4
 from collections.abc import Callable
 from typing import Annotated, Any, TypedDict
 
@@ -16,31 +18,55 @@ def _merge_results(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> l
 class WorkflowState(TypedDict, total=False):
     strategies: list[str]
     tasks: dict[str, Callable[[], Any]]
+    timeout_seconds: int
+    max_retries: int
     results: Annotated[list[dict[str, Any]], _merge_results]
 
 
 def _dispatch(state: WorkflowState) -> list[Send]:
     selected = state.get("strategies", [])
     tasks = state.get("tasks", {})
-    return [Send("strategy", {"strategy": name, "task": tasks.get(name)}) for name in selected]
+    return [
+        Send("strategy", {
+            "strategy": name, "task": tasks.get(name), "task_id": str(uuid4()),
+            "timeout_seconds": state.get("timeout_seconds", 120),
+            "max_retries": state.get("max_retries", 0),
+        })
+        for name in selected
+    ]
 
 
 async def _strategy_node(state: dict[str, Any]) -> dict[str, Any]:
     task = state.get("task")
     name = state["strategy"]
-    try:
-        if task is None:
-            return {"results": [{"name": name, "status": "skipped",
-                                 "reason": "no strategy handler registered"}]}
-        result = task()
-        if asyncio.iscoroutine(result):
-            result = await result
-        return {"results": [{"name": name, "status": "succeeded", "result": result}]}
-    except Exception as exc:
-        return {"results": [{
-            "name": name, "status": "failed",
-            "error": f"{type(exc).__name__}: {exc}",
-        }]}
+    task_id = state.get("task_id", str(uuid4()))
+    if task is None:
+        return {"results": [{"name": name, "task_id": task_id, "status": "skipped",
+                             "reason": "no strategy handler registered"}]}
+    timeout = max(1, int(state.get("timeout_seconds", 120)))
+    retries = max(0, int(state.get("max_retries", 0)))
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            if inspect.iscoroutinefunction(task):
+                result = await asyncio.wait_for(task(), timeout=timeout)
+            else:
+                result = await asyncio.wait_for(asyncio.to_thread(task), timeout=timeout)
+                if inspect.isawaitable(result):
+                    result = await asyncio.wait_for(result, timeout=timeout)
+            return {"results": [{
+                "name": name, "task_id": task_id, "status": "succeeded",
+                "attempts": attempt + 1, "result": result,
+            }]}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            last_error = exc
+    return {"results": [{
+        "name": name, "task_id": task_id, "status": "failed",
+        "attempts": retries + 1,
+        "error": f"{type(last_error).__name__}: {last_error}",
+    }]}
 
 
 def build_strategy_graph():
