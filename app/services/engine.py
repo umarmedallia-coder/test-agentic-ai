@@ -963,6 +963,18 @@ class TradingEngine:
                         intent = reconciliation.accepted[0]
                         intent.strategy = "combined"
 
+            # Keep the activity roster truthful and complete for the selected mode.
+            # Agents not selected by this mode are explicitly marked skipped, not omitted.
+            for agent_name, reason in (
+                ("News Intelligence Agent", "News analysis is not selected by this strategy mode."),
+                ("News-to-Stock Impact Mapping Agent", "No news event was selected for stock-impact mapping."),
+            ):
+                if not any(agent.agent_name == agent_name for agent in self.agents):
+                    self.agents.append(AgentResult(
+                        agent_name=agent_name, status=AgentStatus.SKIPPED,
+                        symbol=symbol, exchange=exchange, conclusion=reason,
+                    ))
+
             strategy_agent = evaluate_strategy(
                 mode=mode, horizon=self.settings.trading_horizon, results=self.agents,
                 policy_version=self.policy_registry.active.version,
