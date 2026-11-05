@@ -85,5 +85,10 @@ async def test_agent_circuit_breaker_opens_and_recovers():
     assert first[0]["status"] == "failed"
     assert second[0]["status"] == "circuit_open"
     await asyncio.sleep(0.02)
-    runner.breakers["provider"].record_success()
+
+    async def healthy():
+        return "recovered"
+
+    recovered = await runner.run_parallel({"provider": healthy})
+    assert recovered[0]["status"] == "succeeded"
     assert runner.breakers["provider"].state == "closed"
