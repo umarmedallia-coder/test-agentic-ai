@@ -53,6 +53,7 @@ class TradingEngine:
         self._lock = RLock()
         self._scheduler_stop = Event()
         self._scheduler_thread: Thread | None = None
+        self._scheduler_recovery_required = False
         self._started = False
         self.state = "idle"
         self.paused = False
@@ -154,16 +155,30 @@ class TradingEngine:
                 snapshot.get("equity_peak", self.settings.initial_capital_inr)
             )
             self._processed_intents = set(snapshot.get("processed_intents", []))
+            self.paused = bool(snapshot.get("paused", False))
             self.processed_corporate_actions = set(
                 snapshot.get("processed_corporate_actions", [])
             )
 
-        # Replay write-ahead fill/close events after the last durable snapshot.
-        # Legacy events already reflected by a snapshot are skipped by fill ID.
+        # Replay write-ahead and lifecycle events after the last durable snapshot.
+        # Legacy fills already reflected by a snapshot are skipped by fill ID.
         applied_fills = set(self.ledger.snapshot().get("applied_fills", []))
+        scheduler_was_active = False
         for event in events[snapshot_index + 1:]:
             event_type = event.get("type")
-            if event_type == "paper_fill":
+            if event_type == "risk_decision":
+                intent_id = (event.get("intent") or {}).get("id")
+                if intent_id:
+                    self._processed_intents.add(intent_id)
+            elif event_type == "entries_paused":
+                self.paused = True
+            elif event_type == "entries_resumed":
+                self.paused = False
+            elif event_type == "scheduler_started":
+                scheduler_was_active = True
+            elif event_type == "scheduler_stopped":
+                scheduler_was_active = False
+            elif event_type == "paper_fill":
                 raw_fill = event.get("fill")
                 raw_position = event.get("position")
                 if not raw_fill or not raw_position:
@@ -223,6 +238,9 @@ class TradingEngine:
                 action = CorporateActionRecord.model_validate(raw_record)
                 if action.action_id not in self.processed_corporate_actions:
                     self._apply_corporate_action_record(action)
+        # A scheduler cannot be resumed implicitly after a crash. Require an
+        # explicit automatic start so operators can inspect recovered state first.
+        self._scheduler_recovery_required = scheduler_was_active
 
 
     def _persist(self) -> None:
@@ -242,6 +260,7 @@ class TradingEngine:
             "equity_peak": self.equity_peak,
             "processed_intents": sorted(self._processed_intents),
             "processed_corporate_actions": sorted(self.processed_corporate_actions),
+            "paused": self.paused,
             "at": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -276,6 +295,10 @@ class TradingEngine:
             target=self._scheduler_loop, name="paper-cycle-scheduler", daemon=True,
         )
         self._scheduler_thread.start()
+        self._scheduler_recovery_required = False
+        self.journal.append({
+            "type": "scheduler_started", "at": datetime.now(timezone.utc).isoformat(),
+        })
 
     def _scheduler_loop(self) -> None:
         while not self._scheduler_stop.is_set():
@@ -1281,6 +1304,10 @@ class TradingEngine:
                 raise RuntimeError("Scheduler did not drain before stop timeout")
         with self._lock:
             if self._started:
+                if thread is not None:
+                    self.journal.append({
+                        "type": "scheduler_stopped", "at": datetime.now(timezone.utc).isoformat(),
+                    })
                 self._persist()
                 self.journal.append({
                     "type": "engine_stopped", "open_positions": len(self.positions),
@@ -1408,4 +1435,5 @@ class TradingEngine:
             "last_cycle_at": self.last_cycle_at, "next_cycle_at": self.next_cycle_at,
             "paused": self.paused,
             "scheduler_active": self._scheduler_thread is not None and self._scheduler_thread.is_alive(),
+            "scheduler_recovery_required": self._scheduler_recovery_required,
         }
