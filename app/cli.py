@@ -27,7 +27,7 @@ def main() -> None:
         return
 
     # Execution mode is deliberately paper-only; strategy selection is independent.
-    settings = Settings(strategy_mode=args.strategy_mode)
+    settings = Settings(strategy_mode=args.strategy_mode, watchlist=[args.symbol])
     engine = TradingEngine(settings)
     try:
         engine.start(automatic=not args.once)
