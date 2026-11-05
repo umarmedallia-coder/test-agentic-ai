@@ -158,6 +158,30 @@ if page == "Overview":
             f"Net P&L: ₹{report.net_pnl:,.2f}"
         )
         st.caption(report.recommendation)
+        policy_history = engine.policy_registry.snapshot()
+        st.dataframe(
+            [
+                {
+                    "version": policy["version"],
+                    "parent": policy.get("parent_version") or "—",
+                    "parameters": policy.get("parameters", {}),
+                    "active": policy["version"] == engine.policy_registry.active.version,
+                }
+                for policy in policy_history
+            ],
+            use_container_width=True,
+        )
+        if engine.state == "running" and len(policy_history) > 1:
+            if st.button("Rollback to previous paper policy"):
+                try:
+                    restored = engine.rollback_paper_policy()
+                    st.success(f"Paper policy rolled back to {restored.version}.")
+                except Exception as exc:
+                    st.error(f"Policy rollback failed: {exc}")
+        st.caption(
+            "Policy promotion remains gated by an offline, chronological candidate-vs-baseline "
+            "evaluation; dashboard controls do not accept manually asserted evaluation results."
+        )
         if snapshot["errors"]:
             st.subheader("Operational errors")
             for error in snapshot["errors"][-10:]:
