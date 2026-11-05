@@ -437,7 +437,7 @@ class TradingEngine:
 
     def _close_triggered_positions(self, symbol: str, bar: dict) -> None:
         remaining: list[Position] = []
-        close_events: list[dict] = []
+        closed_any = False
         for position in self.positions:
             if position.symbol != symbol:
                 remaining.append(position)
@@ -484,6 +484,14 @@ class TradingEngine:
                 policy_version=position.policy_version, strategy=position.strategy,
                 sector=position.sector, entry_at=position.opened_at, closed_at=fill.filled_at,
             )
+            # Write-ahead close record makes the exit recoverable before the snapshot flush.
+            self.journal.append({
+                "type": "position_closed", "intent_id": position.intent_id,
+                "exit_fill": fill.model_dump(mode="json"),
+                "outcome": outcome.model_dump(mode="json"),
+                "reason": reason, "net_pnl": float(net_decimal),
+                "at": fill.filled_at.isoformat(),
+            })
             ledger_net = (
                 self.ledger.apply_sell(fill)
                 if position.direction == "long"
@@ -493,18 +501,10 @@ class TradingEngine:
             self.daily_realized_pnl += float(ledger_net)
             self.fees_paid += float(fill.fees)
             self.outcomes.append(outcome)
-            close_events.append({
-                "type": "position_closed", "intent_id": position.intent_id,
-                "exit_fill": fill.model_dump(mode="json"),
-                "outcome": outcome.model_dump(mode="json"),
-                "reason": reason, "net_pnl": float(net_decimal),
-                "at": fill.filled_at.isoformat(),
-            })
+            closed_any = True
         self.positions = remaining
-        if close_events:
+        if closed_any:
             self._persist()
-            for event in close_events:
-                self.journal.append(event)
 
     def run_stock_discovery(self, limit: int | None = None) -> AgentResult:
         """Scan a bounded provider universe using validated OHLCV and active paper policy."""
