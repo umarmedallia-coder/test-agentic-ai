@@ -100,52 +100,123 @@ class TradingEngine:
         return float(value) if value is not None else None
 
     def _restore(self, events: list[dict]) -> None:
-        snapshots = [event for event in events if event.get("type") == "portfolio_snapshot"]
-        if not snapshots:
-            return
-        snapshot = snapshots[-1]
-        self.cash = float(snapshot["cash"])
-        self.positions = [Position.model_validate(item) for item in snapshot.get("positions", [])]
-        self.marks = {key: float(value) for key, value in snapshot.get("marks", {}).items()}
-        self.realized_pnl = float(snapshot.get("realized_pnl", 0))
-        ledger_snapshot = snapshot.get("ledger")
-        if ledger_snapshot:
-            self.ledger.restore(ledger_snapshot)
-        else:
-            # Upgrade legacy snapshots into the canonical Decimal ledger.
-            self.ledger = PortfolioLedger(Decimal(str(self.settings.initial_capital_inr)))
-            for position in self.positions:
-                restored_fill = PaperFill(
-                    fill_id=position.entry_fill_id or position.intent_id,
-                    signal_id=position.intent_id, symbol=position.symbol,
-                    side="short" if position.direction == "short" else "buy",
-                    quantity=position.quantity, price=Decimal(str(position.entry_price)),
-                    fees=Decimal(str(position.entry_fees)), filled_at=position.opened_at,
-                )
-                if position.direction == "short":
-                    self.ledger.apply_short(restored_fill)
-                else:
-                    self.ledger.apply_buy(restored_fill)
-                self.ledger.mark(
-                    position.symbol,
-                    Decimal(str(self.marks.get(position.symbol, position.entry_price))),
-                )
-            self.ledger.cash = Decimal(str(snapshot["cash"]))
-            self.ledger.realized_pnl = Decimal(str(self.realized_pnl))
-        self.daily_realized_pnl = float(snapshot.get("daily_realized_pnl", 0))
-        self.daily_pnl_date = snapshot.get("daily_pnl_date", self.daily_pnl_date)
-        self.daily_start_equity = float(snapshot.get("daily_start_equity", self.cash))
-        self.fees_paid = float(snapshot.get("fees_paid", 0))
-        self.outcomes = [
-            TradeOutcome.model_validate(item) for item in snapshot.get("outcomes", [])
+        snapshot_index = -1
+        snapshots = [
+            (index, event) for index, event in enumerate(events)
+            if event.get("type") == "portfolio_snapshot"
         ]
-        if snapshot.get("policy_history"):
-            self.policy_registry = PaperPolicyRegistry.from_snapshot(
-                snapshot["policy_history"],
+        if snapshots:
+            snapshot_index, snapshot = snapshots[-1]
+            self.cash = float(snapshot["cash"])
+            self.positions = [
+                Position.model_validate(item) for item in snapshot.get("positions", [])
+            ]
+            self.marks = {
+                key: float(value) for key, value in snapshot.get("marks", {}).items()
+            }
+            self.realized_pnl = float(snapshot.get("realized_pnl", 0))
+            ledger_snapshot = snapshot.get("ledger")
+            if ledger_snapshot:
+                self.ledger.restore(ledger_snapshot)
+            else:
+                # Upgrade legacy snapshots into the canonical Decimal ledger.
+                self.ledger = PortfolioLedger(Decimal(str(self.settings.initial_capital_inr)))
+                for position in self.positions:
+                    restored_fill = PaperFill(
+                        fill_id=position.entry_fill_id or position.intent_id,
+                        signal_id=position.intent_id, symbol=position.symbol,
+                        side="short" if position.direction == "short" else "buy",
+                        quantity=position.quantity, price=Decimal(str(position.entry_price)),
+                        fees=Decimal(str(position.entry_fees)), filled_at=position.opened_at,
+                    )
+                    if position.direction == "short":
+                        self.ledger.apply_short(restored_fill)
+                    else:
+                        self.ledger.apply_buy(restored_fill)
+                    self.ledger.mark(
+                        position.symbol,
+                        Decimal(str(self.marks.get(position.symbol, position.entry_price))),
+                    )
+                self.ledger.cash = Decimal(str(snapshot["cash"]))
+                self.ledger.realized_pnl = Decimal(str(self.realized_pnl))
+            self.daily_realized_pnl = float(snapshot.get("daily_realized_pnl", 0))
+            self.daily_pnl_date = snapshot.get("daily_pnl_date", self.daily_pnl_date)
+            self.daily_start_equity = float(snapshot.get("daily_start_equity", self.cash))
+            self.fees_paid = float(snapshot.get("fees_paid", 0))
+            self.outcomes = [
+                TradeOutcome.model_validate(item) for item in snapshot.get("outcomes", [])
+            ]
+            if snapshot.get("policy_history"):
+                self.policy_registry = PaperPolicyRegistry.from_snapshot(
+                    snapshot["policy_history"],
+                )
+            self.equity_peak = float(
+                snapshot.get("equity_peak", self.settings.initial_capital_inr)
             )
-        self.equity_peak = float(snapshot.get("equity_peak", self.settings.initial_capital_inr))
-        self._processed_intents = set(snapshot.get("processed_intents", []))
-        self.processed_corporate_actions = set(snapshot.get("processed_corporate_actions", []))
+            self._processed_intents = set(snapshot.get("processed_intents", []))
+            self.processed_corporate_actions = set(
+                snapshot.get("processed_corporate_actions", [])
+            )
+
+        # Replay write-ahead fill/close events after the last durable snapshot.
+        # Legacy events already reflected by a snapshot are skipped by fill ID.
+        applied_fills = set(self.ledger.snapshot().get("applied_fills", []))
+        for event in events[snapshot_index + 1:]:
+            event_type = event.get("type")
+            if event_type == "paper_fill":
+                raw_fill = event.get("fill")
+                raw_position = event.get("position")
+                if not raw_fill or not raw_position:
+                    continue
+                fill = PaperFill.model_validate(raw_fill)
+                if fill.fill_id in applied_fills:
+                    continue
+                position = Position.model_validate(raw_position)
+                if position.direction == "short":
+                    self.ledger.apply_short(fill)
+                else:
+                    self.ledger.apply_buy(fill)
+                mark = self.marks.get(position.symbol, position.entry_price)
+                self.ledger.mark(position.symbol, Decimal(str(mark)))
+                if not any(item.intent_id == position.intent_id for item in self.positions):
+                    self.positions.append(position)
+                self.fees_paid += float(fill.fees)
+                self._processed_intents.add(position.intent_id)
+                applied_fills.add(fill.fill_id)
+            elif event_type == "position_closed":
+                raw_fill = event.get("exit_fill")
+                raw_outcome = event.get("outcome")
+                if not raw_fill or not raw_outcome:
+                    continue
+                fill = PaperFill.model_validate(raw_fill)
+                if fill.fill_id in applied_fills:
+                    continue
+                intent_id = event.get("intent_id")
+                position = next(
+                    (item for item in self.positions if item.intent_id == intent_id),
+                    None,
+                )
+                if position is None:
+                    raise RuntimeError(
+                        f"Journal replay cannot find position for close event {intent_id}"
+                    )
+                ledger_net = (
+                    self.ledger.apply_sell(fill)
+                    if position.direction == "long"
+                    else self.ledger.apply_cover(fill)
+                )
+                self.positions = [
+                    item for item in self.positions if item.intent_id != intent_id
+                ]
+                outcome = TradeOutcome.model_validate(raw_outcome)
+                if not any(item.exit_fill_id == fill.fill_id for item in self.outcomes):
+                    self.outcomes.append(outcome)
+                self.realized_pnl = float(self.ledger.realized_pnl)
+                self.daily_realized_pnl += float(ledger_net)
+                self.fees_paid += float(fill.fees)
+                self.marks[position.symbol] = float(fill.price)
+                applied_fills.add(fill.fill_id)
+
 
     def _persist(self) -> None:
         self.journal.append({
@@ -180,6 +251,8 @@ class TradingEngine:
                     "type": "engine_started", "mode": self.settings.strategy_mode,
                     "at": datetime.now(timezone.utc).isoformat(),
                 })
+                # Establish a durable baseline before any new order can be journaled.
+                self._persist()
                 self._started = True
                 self.state = "running"
                 if automatic:
