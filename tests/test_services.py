@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timedelta
 from decimal import Decimal
 
 import pytest
@@ -211,3 +211,42 @@ def test_balanced_news_sentiment_never_creates_directional_trade():
     assert impact.impact_score >= 65
     assert impact.sentiment == 0
     assert build_news_signal(impact, 100, 2) is None
+
+
+def test_news_impact_maps_same_inverse_and_mixed_relationships():
+    now = datetime.now(UTC)
+    item = NewsItem(
+        headline="BEL wins major order, profit rises, upgrade approval",
+        source="exchange", published_at=now, symbols=["BEL"],
+    )
+    impact = score_news(item)
+    edges = [
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="BEML", relationship_type="supplier",
+            transmission="same", evidence_ids=["r1"], source="filing",
+            valid_from=now - timedelta(days=1), confidence=0.9,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="XYZ", relationship_type="competitor",
+            transmission="inverse", evidence_ids=["r2"], source="filing",
+            valid_from=now - timedelta(days=1), confidence=0.8,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="ABC", relationship_type="sector_peer",
+            transmission="mixed", evidence_ids=["r3"], source="filing",
+            valid_from=now - timedelta(days=1), confidence=0.9,
+        ),
+        RelationshipEdge(
+            source_symbol="BEL", target_symbol="OLD", relationship_type="expired",
+            transmission="same", evidence_ids=["r4"], source="old filing",
+            valid_from=now - timedelta(days=5), valid_until=now - timedelta(days=1),
+            confidence=0.99,
+        ),
+    ]
+    result = map_news_impact(impact, edges, as_of=now)
+    directions = {security.symbol: security.direction for security in result.affected_securities}
+    assert directions["BEL"] == "positive"
+    assert directions["BEML"] == "positive"
+    assert directions["XYZ"] == "negative"
+    assert directions["ABC"] == "mixed"
+    assert result.rejected_relationships == 1
