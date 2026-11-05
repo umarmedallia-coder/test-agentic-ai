@@ -8,6 +8,24 @@ from app.services.engine import TradingEngine
 st.set_page_config(page_title="NSE/BSE Paper Engine", layout="wide")
 st.title("NSE/BSE Agentic Paper Trading Engine")
 st.caption("PAPER TRADING · MOCK DATA · LIVE ORDERS DISABLED")
+reduced_motion = st.sidebar.checkbox("Reduce motion", value=False)
+if not reduced_motion:
+    st.markdown(
+        """
+        <style>
+        @keyframes agent-pulse {
+            0% { opacity: .55; transform: scale(.985); }
+            50% { opacity: 1; transform: scale(1); }
+            100% { opacity: .55; transform: scale(.985); }
+        }
+        .agent-running { animation: agent-pulse 1.5s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+            .agent-running { animation: none !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_resource
@@ -129,7 +147,12 @@ else:
                 left, right = st.columns([3, 1])
                 left.markdown(f"**{name}**")
                 left.caption(responsibility)
-                right.write(status.value.replace("_", " ").title())
+                status_label = status.value.replace("_", " ").title()
+                css_class = "agent-running" if status == AgentStatus.RUNNING and not reduced_motion else ""
+                right.markdown(
+                    f'<div class="{css_class}"><strong>{status_label}</strong></div>',
+                    unsafe_allow_html=True,
+                )
                 if result:
                     st.write(result.conclusion)
                     if result.findings:
