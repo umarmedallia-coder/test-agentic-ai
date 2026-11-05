@@ -231,7 +231,7 @@ class TradingEngine:
             elif mode == "corporate_actions":
                 action_agent, blocked = asyncio.run(
                     run_corporate_actions_pipeline(
-                        self.provider, symbol, date.today(),
+                        self.provider, symbol, datetime.now(ZoneInfo("Asia/Kolkata")).date(),
                     )
                 )
                 self.agents = [action_agent]
