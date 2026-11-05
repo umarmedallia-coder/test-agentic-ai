@@ -30,6 +30,9 @@ class DataEnvelope(BaseModel, Generic[T]):
     fetched_at: datetime = Field(default_factory=utc_now)
     as_of: datetime
     status: DataStatus = DataStatus.OK
+    is_mock: bool = False
+    freshness_seconds: int = Field(default=0, ge=0)
+    missing_fields: list[str] = Field(default_factory=list)
     payload: T
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
