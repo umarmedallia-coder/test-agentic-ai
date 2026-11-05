@@ -199,3 +199,15 @@ def test_news_impact_maps_only_evidenced_relationships_and_retains_conflicts():
     assert "WEAK" not in by_symbol
     assert mapped.evaluated_relationships == 3
     assert mapped.rejected_relationships == 1
+
+
+def test_balanced_news_sentiment_never_creates_directional_trade():
+    now = datetime.now(UTC)
+    item = NewsItem(
+        headline="Company wins major order but fraud probe announced",
+        source="exchange", published_at=now, symbols=["ABC"],
+    )
+    impact = score_news(item)
+    assert impact.impact_score >= 65
+    assert impact.sentiment == 0
+    assert build_news_signal(impact, 100, 2) is None
