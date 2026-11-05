@@ -1,8 +1,8 @@
 """Paper-only outcome evaluation, policy gates, and bounded offline proposals."""
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from statistics import mean
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -90,6 +90,21 @@ class PaperPolicyRegistry:
     @property
     def versions(self) -> tuple[str, ...]:
         return tuple(policy.version for policy in self._history)
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        return [policy.model_dump(mode="json") for policy in self._history]
+
+    @classmethod
+    def from_snapshot(cls, snapshot: list[dict[str, Any]]) -> PaperPolicyRegistry:
+        policies = [PaperPolicy.model_validate(item) for item in snapshot]
+        if not policies:
+            raise ValueError("policy snapshot cannot be empty")
+        for previous, current in zip(policies, policies[1:]):
+            if current.parent_version != previous.version:
+                raise ValueError("policy history contains a broken parent chain")
+        registry = cls(policies[0])
+        registry._history = policies
+        return registry
 
     def promote(self, candidate: PaperPolicy, evaluation: CandidateEvaluation) -> PaperPolicy:
         if not evaluation.accepted:
