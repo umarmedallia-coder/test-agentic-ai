@@ -1,11 +1,10 @@
-"""Paper-only outcome reporting and leakage-safe chronological policy evaluation."""
+"""Paper-only outcome evaluation and bounded offline parameter proposals."""
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from statistics import mean
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.contracts import TradeOutcome
 
@@ -19,37 +18,22 @@ class LearningReport(BaseModel):
     policy_version: str
 
 
-class PolicyEvaluation(BaseModel):
-    candidate_version: str
-    baseline_version: str
-    training_samples: int
-    candidate_validation_samples: int
-    baseline_validation_samples: int
-    candidate_net_pnl: Decimal
-    baseline_net_pnl: Decimal
-    candidate_max_drawdown: float = Field(ge=0, le=1)
-    accepted: bool
-    reasons: list[str]
-    training_end: datetime | None = None
-    validation_start: datetime | None = None
-    validation_end: datetime | None = None
+class ChronologicalEvaluation(BaseModel):
+    train: LearningReport
+    test: LearningReport
+    test_max_drawdown: Decimal
+    passed: bool
+    reason: str
 
 
-class PaperPolicy(BaseModel):
-    version: str
-    parameters: dict[str, float] = Field(default_factory=dict)
-    parent_version: str | None = None
-
-    @model_validator(mode="after")
-    def reject_hard_risk_overrides(self):
-        protected = {
-            "max_risk_per_trade_pct", "max_daily_loss_pct", "max_drawdown_pct",
-            "max_open_positions", "max_gross_exposure_pct",
-        }
-        forbidden = protected.intersection(self.parameters)
-        if forbidden:
-            raise ValueError(f"policy cannot modify hard risk limits: {sorted(forbidden)}")
-        return self
+_ALLOWED_STRATEGY_PARAMETERS: dict[str, tuple[float, float]] = {
+    "ema_fast": (2, 50),
+    "ema_slow": (5, 200),
+    "rsi_lower": (10, 45),
+    "rsi_upper": (55, 90),
+    "atr_stop_multiple": (0.5, 5),
+    "reward_risk": (1, 5),
+}
 
 
 def evaluate_outcomes(outcomes: list[TradeOutcome], policy_version: str) -> LearningReport:
@@ -64,8 +48,7 @@ def evaluate_outcomes(outcomes: list[TradeOutcome], policy_version: str) -> Lear
     wins = sum(pnl > 0 for pnl in pnls)
     recommendation = (
         "review paper results; keep current policy"
-        if len(pnls) < 100
-        else "eligible for separate chronological validation; no automatic promotion"
+        if len(pnls) < 100 else "eligible for offline chronological validation"
     )
     return LearningReport(
         sample_count=len(pnls), win_rate=wins / len(pnls),
@@ -75,92 +58,92 @@ def evaluate_outcomes(outcomes: list[TradeOutcome], policy_version: str) -> Lear
     )
 
 
-def _max_drawdown(outcomes: list[TradeOutcome], initial_equity: Decimal) -> float:
-    equity = initial_equity
-    peak = initial_equity
-    maximum = Decimal("0")
-    for outcome in sorted(outcomes, key=lambda item: item.closed_at):
-        equity += outcome.net_pnl
-        peak = max(peak, equity)
-        if peak > 0:
-            maximum = max(maximum, (peak - equity) / peak)
-    return float(maximum)
-
-
-def evaluate_candidate(
+def chronological_split(
+    outcomes: list[TradeOutcome],
     *,
-    training_outcomes: list[TradeOutcome],
-    candidate_validation: list[TradeOutcome],
-    baseline_validation: list[TradeOutcome],
-    candidate_version: str,
-    baseline_version: str,
-    minimum_samples: int = 100,
-    maximum_drawdown: float = 0.10,
-    initial_equity: Decimal = Decimal("1000000"),
-) -> PolicyEvaluation:
-    """Evaluate only on later outcomes; rejects overlap and insufficient evidence."""
-    if minimum_samples < 1 or not 0 < maximum_drawdown <= 1 or initial_equity <= 0:
-        raise ValueError("invalid evaluation gate configuration")
-    reasons: list[str] = []
-    training = sorted(training_outcomes, key=lambda item: item.closed_at)
-    candidate = sorted(candidate_validation, key=lambda item: item.closed_at)
-    baseline = sorted(baseline_validation, key=lambda item: item.closed_at)
-    training_end = training[-1].closed_at if training else None
-    validation_start = min(
-        (item.closed_at for item in candidate + baseline), default=None,
+    train_ratio: float = 0.7,
+    min_train_samples: int = 20,
+    min_test_samples: int = 10,
+) -> tuple[list[TradeOutcome], list[TradeOutcome]]:
+    if not 0 < train_ratio < 1:
+        raise ValueError("train_ratio must be strictly between zero and one")
+    ordered = sorted(outcomes, key=lambda outcome: outcome.closed_at)
+    split_index = int(len(ordered) * train_ratio)
+    if split_index < min_train_samples or len(ordered) - split_index < min_test_samples:
+        raise ValueError("insufficient outcomes for chronological train/test evaluation")
+    train, test = ordered[:split_index], ordered[split_index:]
+    if train[-1].closed_at >= test[0].closed_at:
+        raise ValueError("chronological split contains overlapping timestamps")
+    return train, test
+
+
+def _max_drawdown(pnls: list[Decimal]) -> Decimal:
+    cumulative = Decimal("0")
+    peak = Decimal("0")
+    maximum = Decimal("0")
+    for pnl in pnls:
+        cumulative += pnl
+        peak = max(peak, cumulative)
+        maximum = max(maximum, peak - cumulative)
+    return maximum
+
+
+def evaluate_chronological(
+    outcomes: list[TradeOutcome],
+    *,
+    policy_version: str,
+    min_samples: int = 30,
+    train_ratio: float = 0.7,
+    min_test_win_rate: float = 0.5,
+    max_test_drawdown: Decimal = Decimal("100000"),
+) -> ChronologicalEvaluation:
+    if len(outcomes) < min_samples:
+        raise ValueError(f"at least {min_samples} outcomes are required")
+    train, test = chronological_split(outcomes, train_ratio=train_ratio)
+    train_report = evaluate_outcomes(train, policy_version)
+    test_report = evaluate_outcomes(test, policy_version)
+    drawdown = _max_drawdown([outcome.net_pnl for outcome in test])
+    passed = (
+        test_report.net_pnl > 0
+        and test_report.win_rate >= min_test_win_rate
+        and drawdown <= max_test_drawdown
     )
-    validation_end = max(
-        (item.closed_at for item in candidate + baseline), default=None,
+    reason = (
+        "out-of-sample paper gates passed; manual review required"
+        if passed else "out-of-sample paper gates failed; keep prior policy"
     )
-
-    if len(training) < minimum_samples:
-        reasons.append("insufficient chronological training samples")
-    if len(candidate) < minimum_samples or len(baseline) < minimum_samples:
-        reasons.append("insufficient candidate or baseline validation samples")
-    if training_end is not None and validation_start is not None and training_end >= validation_start:
-        reasons.append("chronological leakage: training outcomes overlap validation period")
-    if not candidate or not baseline:
-        reasons.append("candidate and baseline validation outcomes are required")
-
-    candidate_net = sum((item.net_pnl for item in candidate), Decimal("0"))
-    baseline_net = sum((item.net_pnl for item in baseline), Decimal("0"))
-    drawdown = _max_drawdown(candidate, initial_equity) if candidate else 0.0
-    if candidate_net <= baseline_net:
-        reasons.append("candidate does not outperform the baseline after costs")
-    if drawdown > maximum_drawdown:
-        reasons.append("candidate exceeds the maximum validation drawdown")
-
-    return PolicyEvaluation(
-        candidate_version=candidate_version, baseline_version=baseline_version,
-        training_samples=len(training), candidate_validation_samples=len(candidate),
-        baseline_validation_samples=len(baseline), candidate_net_pnl=candidate_net,
-        baseline_net_pnl=baseline_net, candidate_max_drawdown=drawdown,
-        accepted=not reasons, reasons=reasons, training_end=training_end,
-        validation_start=validation_start, validation_end=validation_end,
+    return ChronologicalEvaluation(
+        train=train_report, test=test_report,
+        test_max_drawdown=drawdown, passed=passed, reason=reason,
     )
 
 
-class PaperPolicyRegistry:
-    """Versioned paper-only promotion and rollback; hard risk limits are immutable."""
-
-    def __init__(self, initial_policy: PaperPolicy) -> None:
-        self.active = initial_policy
-        self._history: list[PaperPolicy] = []
-
-    def promote(self, candidate: PaperPolicy, evaluation: PolicyEvaluation) -> None:
-        if not evaluation.accepted:
-            raise ValueError("policy evaluation did not pass promotion gates")
-        if candidate.parent_version != self.active.version:
-            raise ValueError("candidate parent does not match the active policy version")
-        if candidate.version in {self.active.version, *(policy.version for policy in self._history)}:
-            raise ValueError("policy version already exists")
-        if candidate.version != evaluation.candidate_version:
-            raise ValueError("candidate version does not match evaluated version")
-        self._history.append(self.active)
-        self.active = candidate
-
-    def rollback(self) -> PaperPolicy:
-        if not self._history:
-            raise ValueError("no prior paper policy is available for rollback")
-        self.active = self._history.pop()
-        return self.active
+def validate_strategy_parameter_proposal(
+    current: dict[str, float],
+    proposed: dict[str, float],
+    *,
+    max_relative_change: float = 0.2,
+) -> dict[str, float]:
+    """Validate strategy-only changes; risk limits and account controls are never tunable here."""
+    if not 0 < max_relative_change <= 0.2:
+        raise ValueError("max_relative_change must be in (0, 0.2]")
+    unknown = set(proposed) - set(_ALLOWED_STRATEGY_PARAMETERS)
+    if unknown:
+        raise ValueError(f"unsupported or risk-related parameters: {sorted(unknown)}")
+    result = dict(current)
+    for name, value in proposed.items():
+        if name not in current:
+            raise ValueError(f"current value required for {name}")
+        lower, upper = _ALLOWED_STRATEGY_PARAMETERS[name]
+        baseline = current[name]
+        if not lower <= value <= upper:
+            raise ValueError(f"{name} is outside its absolute safety bounds")
+        allowed_delta = max(abs(baseline) * max_relative_change, 0.01)
+        if abs(value - baseline) > allowed_delta:
+            raise ValueError(f"{name} exceeds the bounded change limit")
+        result[name] = value
+    if "ema_fast" in result and "ema_slow" in result and result["ema_fast"] >= result["ema_slow"]:
+        raise ValueError("ema_fast must remain below ema_slow")
+    if "rsi_lower" in result and "rsi_upper" in result and result["rsi_lower"] >= result["rsi_upper"]:
+        raise ValueError("rsi_lower must remain below rsi_upper")
+    return result
