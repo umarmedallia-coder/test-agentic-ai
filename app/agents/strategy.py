@@ -15,13 +15,28 @@ def evaluate_strategy(*, mode: str, horizon: str, results: list[AgentResult],
         "combined": ["Technical Analysis Agent", "News Intelligence Agent", "Corporate Actions Agent"],
     }[mode]
     missing = [name for name in required if name not in by_name]
-    failed = [name for name in required if name in by_name and by_name[name].status != AgentStatus.SUCCEEDED]
+    failed = [name for name in required if name in by_name and by_name[name].status not in {AgentStatus.SUCCEEDED, AgentStatus.SKIPPED}]
+    # An explicitly empty corporate-action feed is an accounted-for neutral result;
+    # an empty signal feed is not evidence for a trade.
+    neutral_empty_actions = [name for name in required if name == "Corporate Actions Agent"
+        and name in by_name and by_name[name].status == AgentStatus.SKIPPED
+        and by_name[name].findings.get("feed_status") == "empty"]
+    failed = [name for name in failed if name not in neutral_empty_actions]
+    skipped_signal_sources = [name for name in required if name != "Corporate Actions Agent"
+        and name in by_name and by_name[name].status == AgentStatus.SKIPPED]
+    failed.extend(skipped_signal_sources)
     blocked = [name for name in required if name in by_name and by_name[name].findings.get("blocked") is True]
     directions = {}
     for name in required:
         result = by_name.get(name)
         if result is None: continue
         direction = result.findings.get("direction") or result.findings.get("sentiment_direction")
+        if name == "Technical Analysis Agent":
+            direction = direction or result.findings.get("signal")
+        if name == "News Intelligence Agent" and direction is None:
+            sentiment = result.findings.get("sentiment")
+            if isinstance(sentiment, (int, float)):
+                direction = "bullish" if sentiment >= 0.2 else "bearish" if sentiment <= -0.2 else None
         if direction in {"long", "short", "bullish", "bearish"}:
             directions[name] = "long" if direction in {"long", "bullish"} else "short"
     conflict = len(set(directions.values())) > 1
