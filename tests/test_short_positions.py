@@ -292,3 +292,15 @@ def test_engine_opens_and_restores_short_paper_position(tmp_path, monkeypatch):
     assert recovered.positions[0].direction == "short"
     assert recovered.ledger.positions["RELIANCE"].direction == "short"
     recovered.stop()
+
+
+def test_short_sale_proceeds_are_reserved_and_not_reusable_as_free_cash():
+    ledger = PortfolioLedger(Decimal("10000"))
+    ledger.apply_short(fill("collateral-short-entry", "short", 10, "100", "1"))
+
+    assert ledger.cash == Decimal("10999")
+    assert ledger.available_cash == Decimal("9999")
+
+    ledger.mark("ABC", Decimal("120"))
+    assert ledger.reserved_short_collateral == Decimal("1200")
+    assert ledger.available_cash == Decimal("9799")
