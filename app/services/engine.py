@@ -475,7 +475,10 @@ class TradingEngine:
                 agent_name="Technical Analysis Agent", status=AgentStatus.RUNNING,
                 symbol=symbol, exchange=exchange, conclusion="Calculating deterministic indicators.",
             )]
-            technical_agent, technical_intent = analyze_technical(symbol, exchange, bars)
+            technical_agent, technical_intent = analyze_technical(
+                symbol, exchange, bars, self.policy_registry.active.parameters,
+                is_mock=history.is_mock,
+            )
             fundamental_feed = asyncio.run(self.provider.get_fundamental_snapshot(symbol, exchange))
             if fundamental_feed.status.value == "ok" and fundamental_feed.payload is not None:
                 fundamental_agent = analyze_fundamentals(fundamental_feed.payload)
