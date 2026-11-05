@@ -87,3 +87,40 @@ def test_ledger_rejects_opposite_side_addition_and_wrong_cover():
         ledger.apply_buy(fill("long-entry", "buy", 1, "90"))
     with pytest.raises(ValueError, match="no open short"):
         ledger.apply_cover(fill("bad-cover", "cover", 1, "90"))
+
+
+def test_fractional_split_requires_price_then_settles_long_cash_in_lieu():
+    ledger = PortfolioLedger(Decimal("10000"))
+    ledger.apply_buy(fill("long-entry", "buy", 3, "100", "0"))
+    before = ledger.snapshot()
+
+    with pytest.raises(ValueError, match="cash-in-lieu"):
+        ledger.apply_split("ABC", Decimal("2"), Decimal("3"), "split-fractional")
+    assert ledger.snapshot() == before
+
+    quantity, average_entry = ledger.apply_split(
+        "ABC", Decimal("2"), Decimal("3"), "split-fractional",
+        cash_in_lieu_price=Decimal("60"),
+    )
+    assert quantity == 4
+    assert average_entry == Decimal("100") * Decimal("2") / Decimal("3")
+    assert ledger.cash == Decimal("9820")
+    assert ledger.realized_pnl == Decimal("0.5") * (
+        Decimal("60") - average_entry
+    )
+
+
+def test_fractional_split_cash_in_lieu_for_short_position():
+    ledger = PortfolioLedger(Decimal("10000"))
+    ledger.apply_short(fill("short-entry", "short", 3, "100", "0"))
+
+    quantity, average_entry = ledger.apply_split(
+        "ABC", Decimal("2"), Decimal("3"), "short-split-fractional",
+        cash_in_lieu_price=Decimal("60"),
+    )
+    assert quantity == 4
+    assert average_entry == Decimal("100") * Decimal("2") / Decimal("3")
+    assert ledger.cash == Decimal("9820")
+    assert ledger.realized_pnl == Decimal("0.5") * (
+        average_entry - Decimal("60")
+    )
