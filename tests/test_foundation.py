@@ -453,3 +453,29 @@ def test_engine_fails_closed_on_stale_typed_historical_data(tmp_path):
         for event in engine.journal.read_all()
     )
     engine.stop()
+
+
+def test_engine_rejects_over_age_typed_history_even_when_provider_marks_ok(tmp_path):
+    from datetime import timedelta
+
+    from app.data.mock_provider import MockMarketDataProvider
+
+    class OverAgeHistoryProvider(MockMarketDataProvider):
+        async def get_historical_prices(self, symbol, start, end, exchange="NSE"):
+            original = await super().get_historical_prices(symbol, start, end, exchange)
+            return DataEnvelope(
+                source=original.source, as_of=original.as_of,
+                payload=original.payload, status="ok", is_mock=original.is_mock,
+                freshness_seconds=900_000,
+            )
+
+    engine = TradingEngine(Settings(
+        journal_dir=tmp_path, max_market_data_freshness_seconds=86_400,
+    ))
+    engine.provider = OverAgeHistoryProvider()
+    engine.start()
+    engine.run_cycle()
+    assert engine.positions == []
+    assert engine.agents[0].status == AgentStatus.FAILED
+    assert "freshness_seconds=900000" in engine.agents[0].errors[0]
+    engine.stop()
