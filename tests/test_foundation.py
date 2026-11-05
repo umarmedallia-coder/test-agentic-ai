@@ -7,6 +7,7 @@ from app.config import Settings
 from app.contracts import CorporateActionRecord, DataEnvelope, PaperFill
 from app.models import AgentResult, AgentStatus, TradeIntent
 from app.services.engine import TradingEngine
+from app.services.learning import CandidateEvaluation, PaperPolicy
 from app.services.journal import JournalError, JsonlJournal
 from app.services.risk import RiskManager
 
@@ -69,6 +70,18 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(first.provider, "get_trading_calendar", market_open)
+    first.policy_registry.promote(
+        PaperPolicy(
+            version="paper-v2", parent_version="paper-baseline-v1",
+            parameters={"ema_fast": 8},
+        ),
+        CandidateEvaluation(
+            accepted=True, candidate_version="paper-v2",
+            baseline_version="paper-baseline-v1", training_samples=100,
+            candidate_validation_samples=100, baseline_validation_samples=100,
+            candidate_net_pnl=Decimal("200"), baseline_net_pnl=Decimal("100"),
+        ),
+    )
     first.start()
     first.run_cycle()
     assert len(first.positions) == 1
