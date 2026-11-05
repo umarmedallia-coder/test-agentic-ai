@@ -15,4 +15,5 @@ def build_llm_provider(settings: Settings) -> OpenAICompatibleProvider | None:
             if settings.llm_api_key is not None else None
         ),
         timeout_seconds=settings.llm_timeout_seconds,
+        max_concurrency=settings.max_llm_concurrency,
     )
