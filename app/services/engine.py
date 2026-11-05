@@ -1304,7 +1304,7 @@ class TradingEngine:
                 raise RuntimeError("Scheduler did not drain before stop timeout")
         with self._lock:
             if self._started:
-                if thread is not None:
+                if thread is not None or self._scheduler_recovery_required:
                     self.journal.append({
                         "type": "scheduler_stopped", "at": datetime.now(timezone.utc).isoformat(),
                     })
