@@ -18,3 +18,10 @@ def test_agent_activity_page_loads_all_agent_cards():
     app.sidebar.radio[0].set_value("Agent Activity").run()
     assert not app.exception
     assert len(app.markdown) >= 13
+
+
+def test_overview_exposes_policy_history_without_offering_unvalidated_promotion():
+    app = AppTest.from_file(DASHBOARD_PATH).run()
+    assert not app.exception
+    assert any("paper policy" in item.value.lower() for item in app.caption)
+    assert not any("promote candidate" in item.label.lower() for item in app.button)
