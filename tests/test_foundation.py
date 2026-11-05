@@ -325,8 +325,9 @@ def test_engine_applies_split_and_dividend_actions_once(tmp_path):
     engine.ledger.mark("ABC", Decimal("100"))
     engine.marks["ABC"] = 100.0
     engine.positions.append(Position(
-        symbol="ABC", quantity=10, entry_price=100,
-        stop_price=90, target_price=120,
+        symbol="ABC", exchange="NSE", direction="long", quantity=10,
+        entry_price=100, stop_price=90, target_price=120,
+        policy_version="paper-baseline-v1",
         opened_at=now - timedelta(days=2),
         entry_fees=1, entry_fill_id=entry_fill.fill_id,
         intent_id="entry-intent",
