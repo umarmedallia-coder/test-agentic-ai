@@ -152,12 +152,22 @@ class PortfolioLedger:
         if fractional_quantity:
             assert cash_in_lieu_price is not None
             cash_value = fractional_quantity * cash_in_lieu_price
+            fractional_entry_fees = (
+                position.entry_fees * fractional_quantity / adjusted_quantity
+            )
             if position.direction == "long":
                 self.cash += cash_value
-                self.realized_pnl += fractional_quantity * (cash_in_lieu_price - adjusted_average)
+                self.realized_pnl += (
+                    fractional_quantity * (cash_in_lieu_price - adjusted_average)
+                    - fractional_entry_fees
+                )
             else:
                 self.cash -= cash_value
-                self.realized_pnl += fractional_quantity * (adjusted_average - cash_in_lieu_price)
+                self.realized_pnl += (
+                    fractional_quantity * (adjusted_average - cash_in_lieu_price)
+                    - fractional_entry_fees
+                )
+            position.entry_fees -= fractional_entry_fees
         if whole_quantity == 0:
             del self.positions[symbol]
             self._applied_actions.add(action_id)
