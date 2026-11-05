@@ -1,13 +1,30 @@
 """Deterministic async mock provider for typed market-data contracts."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 import numpy as np
 
 from app.agents.contracts import FundamentalSnapshot, InstitutionalSnapshot
 from app.contracts import CompanyAnnouncement, CompanyProfile, CorporateActionRecord, DataEnvelope, DataStatus, NewsRecord, OHLCVBar, Quote, RelationshipEdge
+
+
+def is_regular_session(day: date, instant: datetime) -> bool:
+    """Return the regular NSE/BSE weekday session state for a timezone-aware instant.
+
+    This mock helper models 09:15-15:30 Asia/Kolkata only. It does not model
+    exchange holidays, special sessions, or emergency closures.
+    """
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("session instant must be timezone-aware")
+    local = instant.astimezone(ZoneInfo("Asia/Kolkata"))
+    return (
+        local.date() == day
+        and local.weekday() < 5
+        and time(9, 15) <= local.time() < time(15, 30)
+    )
 
 
 class MockMarketDataProvider:
@@ -43,7 +60,15 @@ class MockMarketDataProvider:
         return DataEnvelope(source="mock", is_mock=True,as_of=datetime.now(timezone.utc),payload={"NIFTY 50":0.25,"BANK NIFTY":-0.1},warnings=["synthetic data"])
 
     async def get_trading_calendar(self, day: date, exchange: str = "NSE") -> DataEnvelope[dict[str,bool]]:
-        return DataEnvelope(source="mock", is_mock=True,as_of=datetime.now(timezone.utc),payload={"is_open":day.weekday()<5},warnings=["weekday-only mock calendar; exchange holidays are not modelled"])
+        now = datetime.now(timezone.utc)
+        return DataEnvelope(
+            source="mock", is_mock=True, as_of=now,
+            payload={"is_open": is_regular_session(day, now)},
+            warnings=[
+                "mock regular session 09:15-15:30 Asia/Kolkata; "
+                "exchange holidays, special sessions and emergency closures are not modelled"
+            ],
+        )
 
     async def get_stock_universe(self, exchange: str = "NSE") -> DataEnvelope[list[str]]:
         return DataEnvelope(source="mock", is_mock=True,as_of=datetime.now(timezone.utc),payload=self._symbols.copy(),warnings=["synthetic universe"])
