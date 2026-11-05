@@ -235,6 +235,12 @@ class TradingEngine:
             latest = bars[-1]
             last_price = float(latest["close"])
             self.marks[symbol] = last_price
+            trading_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+            calendar = asyncio.run(self.provider.get_trading_calendar(trading_date))
+            market_open = (
+                calendar.status.value == "ok"
+                and bool(calendar.payload.get("is_open", False))
+            )
             self._roll_daily_pnl()
             self._close_triggered_positions(symbol, latest)
 
@@ -311,7 +317,12 @@ class TradingEngine:
                     technical_intent.strategy = "combined"
                     intent = technical_intent
 
-            if intent is not None and not self.paused:
+            if intent is not None and not self.paused and not market_open:
+                self.journal.append({
+                    "type": "entry_rejected", "reason": "market calendar is closed or unavailable",
+                    "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+                })
+            elif intent is not None and not self.paused:
                 if intent.direction != "long":
                     self.journal.append({
                         "type": "entry_rejected", "reason": "short paper execution is not enabled",
