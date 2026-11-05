@@ -7,7 +7,6 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from app.services.orchestrator import AgentOrchestrator
 
 
 def _merge_results(left: list[dict], right: list[dict]) -> list[dict]:
