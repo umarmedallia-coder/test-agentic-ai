@@ -13,7 +13,7 @@ from app.models import AgentResult, AgentStatus, Position
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
 from app.services.learning import (
-    PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
+    CandidateEvaluation, PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
 )
 from app.services.intent_reconciliation import reconcile_intents
 from app.services.risk import RiskManager
@@ -560,6 +560,40 @@ class TradingEngine:
             self._started = False
             self._scheduler_thread = None
             self.state = "stopped"
+
+    def promote_paper_policy(
+        self, candidate: PaperPolicy, evaluation: CandidateEvaluation,
+    ) -> PaperPolicy:
+        """Promote a candidate only after explicit offline evaluation gates pass."""
+        with self._lock:
+            if not self._started:
+                raise RuntimeError("Engine must be running to change the paper policy")
+            if candidate.version in self.policy_registry.versions:
+                raise ValueError("policy versions must be unique")
+            promoted = self.policy_registry.promote(candidate, evaluation)
+            self._persist()
+            self.journal.append({
+                "type": "paper_policy_promoted",
+                "version": promoted.version,
+                "parent_version": promoted.parent_version,
+                "evaluation": evaluation.model_dump(mode="json"),
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
+            return promoted
+
+    def rollback_paper_policy(self) -> PaperPolicy:
+        """Restore the previous paper policy; hard risk settings are not part of policies."""
+        with self._lock:
+            if not self._started:
+                raise RuntimeError("Engine must be running to roll back the paper policy")
+            previous = self.policy_registry.rollback()
+            self._persist()
+            self.journal.append({
+                "type": "paper_policy_rolled_back",
+                "active_version": previous.version,
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
+            return previous
 
     def learning_report(self):
         return evaluate_outcomes(
