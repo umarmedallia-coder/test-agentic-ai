@@ -250,6 +250,7 @@ class CompanyProfile(BaseModel):
     industry: str | None = None
     exchange: str
     source: str
+    is_mock: bool = False
 
 
 class RelationshipEdge(BaseModel):
