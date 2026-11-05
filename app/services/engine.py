@@ -6,12 +6,13 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.config import Settings
-from app.contracts import Signal
+from app.contracts import Signal, TradeOutcome
 from app.data.mock import MockMarketData
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Position
 from app.services.execution import PaperBroker
 from app.services.journal import JsonlJournal
+from app.services.learning import evaluate_outcomes
 from app.services.risk import RiskManager
 from app.services.technical import analyze_technical
 from app.services.strategy_pipelines import (
@@ -44,6 +45,7 @@ class TradingEngine:
         self.daily_pnl_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         self.daily_start_equity = settings.initial_capital_inr
         self.fees_paid = 0.0
+        self.outcomes: list[TradeOutcome] = []
         self.equity_peak = settings.initial_capital_inr
         self._processed_intents: set[str] = set()
         self.agents: list[AgentResult] = []
@@ -76,6 +78,9 @@ class TradingEngine:
         self.daily_pnl_date = snapshot.get("daily_pnl_date", self.daily_pnl_date)
         self.daily_start_equity = float(snapshot.get("daily_start_equity", self.cash))
         self.fees_paid = float(snapshot.get("fees_paid", 0))
+        self.outcomes = [
+            TradeOutcome.model_validate(item) for item in snapshot.get("outcomes", [])
+        ]
         self.equity_peak = float(snapshot.get("equity_peak", self.settings.initial_capital_inr))
         self._processed_intents = set(snapshot.get("processed_intents", []))
 
@@ -90,6 +95,7 @@ class TradingEngine:
             "daily_pnl_date": self.daily_pnl_date,
             "daily_start_equity": self.daily_start_equity,
             "fees_paid": self.fees_paid,
+            "outcomes": [outcome.model_dump(mode="json") for outcome in self.outcomes],
             "equity_peak": self.equity_peak,
             "processed_intents": sorted(self._processed_intents),
             "at": datetime.now(timezone.utc).isoformat(),
@@ -192,16 +198,26 @@ class TradingEngine:
             )
             fill = self.broker.execute(exit_signal, position.quantity, Decimal(str(trigger_price)))
             proceeds = float(fill.price) * fill.quantity - float(fill.fees)
-            net = (float(fill.price) - position.entry_price) * fill.quantity
-            net -= position.entry_fees + float(fill.fees)
+            gross = (float(fill.price) - position.entry_price) * fill.quantity
+            total_fees = position.entry_fees + float(fill.fees)
+            net = gross - total_fees
+            outcome = TradeOutcome(
+                fill_id=position.entry_fill_id or position.intent_id,
+                symbol=position.symbol, entry_price=Decimal(str(position.entry_price)),
+                exit_price=fill.price, quantity=fill.quantity,
+                gross_pnl=Decimal(str(gross)), fees=Decimal(str(total_fees)),
+                net_pnl=Decimal(str(net)), reason=reason, closed_at=fill.filled_at,
+            )
             self.cash += proceeds
             self.realized_pnl += net
             self.daily_realized_pnl += net
             self.fees_paid += float(fill.fees)
+            self.outcomes.append(outcome)
             close_events.append({
                 "type": "position_closed", "intent_id": position.intent_id,
-                "exit_fill": fill.model_dump(mode="json"), "reason": reason,
-                "net_pnl": net, "at": fill.filled_at.isoformat(),
+                "exit_fill": fill.model_dump(mode="json"),
+                "outcome": outcome.model_dump(mode="json"),
+                "reason": reason, "net_pnl": net, "at": fill.filled_at.isoformat(),
             })
         self.positions = remaining
         if close_events:
@@ -357,6 +373,7 @@ class TradingEngine:
             "state": self.state, "mode": self.settings.strategy_mode, "is_mock": True,
             "cash": self.cash, "equity": self.equity, "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl": self.realized_pnl, "daily_pnl": self.daily_pnl,
+            "outcome_count": len(self.outcomes),
             "fees_paid": self.fees_paid,
             "positions": self.positions, "agents": self.agents, "errors": self.errors,
             "last_cycle_at": self.last_cycle_at, "paused": self.paused,
