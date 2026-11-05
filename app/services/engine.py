@@ -15,6 +15,7 @@ from app.services.journal import JsonlJournal
 from app.services.learning import (
     PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
 )
+from app.services.intent_reconciliation import reconcile_intents
 from app.services.risk import RiskManager
 from app.services.portfolio import PortfolioLedger
 from app.services.technical import analyze_technical
@@ -436,15 +437,21 @@ class TradingEngine:
                         "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
                     })
                 # Combined mode requires all independent evidence pipelines to succeed.
-                if (
-                    technical_intent is not None
-                    and news_intent is not None
-                    and news_intent.direction == technical_intent.direction
-                    and action_agent.status == AgentStatus.SUCCEEDED
-                    and not action_blocked
-                ):
-                    technical_intent.strategy = "combined"
-                    intent = technical_intent
+                if technical_intent is not None and news_intent is not None:
+                    reconciliation = reconcile_intents([technical_intent, news_intent])
+                    for rejection in reconciliation.rejected:
+                        self.journal.append({
+                            "type": "intent_rejected",
+                            "intent_id": rejection.intent_id,
+                            "symbol": rejection.symbol, "reason": rejection.reason,
+                        })
+                    if (
+                        reconciliation.accepted
+                        and action_agent.status == AgentStatus.SUCCEEDED
+                        and not action_blocked
+                    ):
+                        intent = reconciliation.accepted[0]
+                        intent.strategy = "combined"
 
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
