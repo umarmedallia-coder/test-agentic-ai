@@ -42,7 +42,7 @@ d.metric("Realized P&L", f"₹{snapshot['realized_pnl']:,.2f}")
 e.metric("Open positions", len(snapshot["positions"]))
 st.info(
     f"Mode: {snapshot['mode']} · Data: MOCK · Automatic scheduler: "
-    f"{engine._scheduler_thread is not None and engine._scheduler_thread.is_alive()} · "
+    f"{snapshot['scheduler_active']} · "
     f"Last cycle: {snapshot['last_cycle_at'] or 'not run'}"
 )
 st.caption(
