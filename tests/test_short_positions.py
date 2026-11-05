@@ -181,7 +181,7 @@ def test_fractional_split_allocates_entry_fees_to_cash_in_lieu():
 
 
 def test_engine_closes_entire_position_when_reverse_split_is_fully_fractional(tmp_path):
-    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    engine = TradingEngine(Settings(journal_dir=tmp_path, initial_capital_inr=10000))
     engine.start()
     entry = fill("reverse-split-entry", "buy", 1, "100", "0")
     engine.ledger.apply_buy(entry)
