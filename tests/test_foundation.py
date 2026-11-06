@@ -718,3 +718,40 @@ def test_engine_relationship_gate_times_out_hung_provider_calls(tmp_path, monkey
     reason = engine._portfolio_relationship_block(intent)
     assert reason is not None
     assert "relationship provider failed" in reason
+
+
+
+def test_corporate_actions_mode_does_not_require_ohlcv_history(tmp_path, monkeypatch):
+    from app.contracts import Quote
+
+    engine = TradingEngine(Settings(
+        journal_dir=tmp_path, strategy_mode="corporate_actions",
+    ))
+
+    async def unavailable_history(*args, **kwargs):
+        raise AssertionError("corporate-actions-only mode must not request OHLCV history")
+
+    async def quote(symbol, exchange="NSE"):
+        now = datetime.now(UTC)
+        return DataEnvelope(
+            source="test-quote", as_of=now,
+            payload=Quote(
+                symbol=symbol, exchange=exchange, price=Decimal("100"),
+                volume=1000, as_of=now,
+            ),
+        )
+
+    monkeypatch.setattr(engine.provider, "get_historical_prices", unavailable_history)
+    monkeypatch.setattr(engine.provider, "get_stock_quote", quote)
+    engine.start()
+    engine.run_cycle(symbol="RELIANCE")
+    technical = next(
+        item for item in engine.agents if item.agent_name == "Technical Analysis Agent"
+    )
+    corporate_actions = next(
+        item for item in engine.agents if item.agent_name == "Corporate Actions Agent"
+    )
+    assert technical.status == AgentStatus.SKIPPED
+    assert corporate_actions.status == AgentStatus.SKIPPED
+    assert engine.last_cycle_at is not None
+    engine.stop()
