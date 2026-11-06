@@ -13,7 +13,7 @@ from app.agents.critic import critique_evidence
 from app.agents.stock_discovery import discover_stocks
 from app.agents.strategy import evaluate_strategy
 from app.agents.synthesis import synthesize_recommendation
-from app.contracts import CorporateActionRecord, PaperFill, Signal, TradeOutcome
+from app.contracts import CorporateActionRecord, PaperFill, RelationshipEdge, Signal, TradeOutcome
 from app.data.contracts import MarketDataProvider
 from app.data.mock_provider import MockMarketDataProvider
 from app.models import AgentResult, AgentStatus, Evidence, Position, RiskDecision, TradeIntent
@@ -726,7 +726,7 @@ class TradingEngine:
         except Exception as exc:
             return f"relationship provider failed: {type(exc).__name__}: {exc}"
 
-        edges = []
+        edges: list[RelationshipEdge] = []
         for envelope in envelopes:
             if (
                 envelope.status.value not in {"ok", "empty"}
