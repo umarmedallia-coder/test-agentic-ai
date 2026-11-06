@@ -601,3 +601,85 @@ def test_mock_calendar_respects_india_regular_session_boundaries():
     assert not is_regular_session(date(2026, 11, 7), datetime(2026, 11, 7, 5, 0, tzinfo=UTC))
     with pytest.raises(ValueError, match="timezone-aware"):
         is_regular_session(trading_day, datetime(2026, 11, 6, 4, 0))
+
+
+
+def test_engine_relationship_gate_fails_closed_on_stale_provider_data(tmp_path, monkeypatch):
+    engine = TradingEngine(Settings(
+        journal_dir=tmp_path, max_market_data_freshness_seconds=60,
+    ))
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    engine.positions = [Position(
+        intent_id="held", symbol="XYZ", exchange="NSE",
+        direction="short", quantity=1, entry_price=100,
+        stop_price=110, target_price=80, policy_version="baseline",
+    )]
+
+    async def stale_relationships(symbol):
+        return DataEnvelope(
+            source="stale-test", as_of=datetime.now(UTC),
+            freshness_seconds=61, payload=[],
+        )
+
+    monkeypatch.setattr(engine.provider, "get_company_relationships", stale_relationships)
+    reason = engine._portfolio_relationship_block(intent)
+    assert reason is not None
+    assert "stale or unavailable" in reason
+
+
+def test_engine_relationship_gate_fails_closed_on_provider_exception(tmp_path, monkeypatch):
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    engine.positions = [Position(
+        intent_id="held", symbol="XYZ", exchange="NSE",
+        direction="short", quantity=1, entry_price=100,
+        stop_price=110, target_price=80, policy_version="baseline",
+    )]
+
+    async def failed_relationships(symbol):
+        raise ConnectionError("relationship service unavailable")
+
+    monkeypatch.setattr(engine.provider, "get_company_relationships", failed_relationships)
+    reason = engine._portfolio_relationship_block(intent)
+    assert reason is not None
+    assert "relationship provider failed" in reason
+
+
+def test_engine_relationship_gate_rejects_blank_evidence_ids(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from app.contracts import RelationshipEdge
+
+    engine = TradingEngine(Settings(journal_dir=tmp_path))
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    engine.positions = [Position(
+        intent_id="held", symbol="XYZ", exchange="NSE",
+        direction="short", quantity=1, entry_price=100,
+        stop_price=110, target_price=80, policy_version="baseline",
+    )]
+    now = datetime.now(UTC)
+    edge = RelationshipEdge(
+        source_symbol="ABC", target_symbol="XYZ",
+        relationship_type="supplier", transmission="same",
+        evidence_ids=[" "], source="unverified",
+        valid_from=now - timedelta(days=1), confidence=0.95,
+    )
+
+    async def relationship_feed(symbol):
+        return DataEnvelope(
+            source="relationship-test", as_of=now, payload=[edge],
+        )
+
+    monkeypatch.setattr(engine.provider, "get_company_relationships", relationship_feed)
+    reason = engine._portfolio_relationship_block(intent)
+    assert reason is not None
+    assert "relationship evidence is missing" in reason
