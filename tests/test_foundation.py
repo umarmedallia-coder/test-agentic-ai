@@ -689,3 +689,32 @@ def test_engine_relationship_gate_rejects_blank_evidence_ids(tmp_path, monkeypat
     reason = engine._portfolio_relationship_block(intent)
     assert reason is not None
     assert "relationship evidence is missing" in reason
+
+
+
+def test_engine_relationship_gate_times_out_hung_provider_calls(tmp_path, monkeypatch):
+    import asyncio
+
+    engine = TradingEngine(Settings(
+        journal_dir=tmp_path, agent_timeout_seconds=1,
+    ))
+    intent = TradeIntent(
+        symbol="ABC", entry_price=100, stop_price=90,
+        target_price=120, quantity=1,
+    )
+    engine.positions = [Position(
+        intent_id="held", symbol="XYZ", exchange="NSE",
+        direction="short", quantity=1, entry_price=100,
+        stop_price=110, target_price=80, policy_version="baseline",
+    )]
+
+    async def hung_relationships(symbol):
+        await asyncio.sleep(2)
+        return DataEnvelope(
+            source="hung-test", as_of=datetime.now(UTC), payload=[],
+        )
+
+    monkeypatch.setattr(engine.provider, "get_company_relationships", hung_relationships)
+    reason = engine._portfolio_relationship_block(intent)
+    assert reason is not None
+    assert "relationship provider failed" in reason
