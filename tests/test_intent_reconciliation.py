@@ -127,7 +127,7 @@ def test_portfolio_reconciliation_rejects_relationships_without_evidence_ids():
     first = make_intent(symbol="ABC", direction="long")
     second = make_intent(symbol="XYZ", direction="long")
     result = reconcile_portfolio_intents(
-        [first, second], [relationship(evidence_ids=[])], datetime.now(UTC),
+        [first, second], [relationship(evidence_ids=[" "])], datetime.now(UTC),
     )
     assert result.accepted == []
     assert len(result.rejected) == 2
