@@ -22,7 +22,7 @@ from app.services.journal import JsonlJournal
 from app.services.learning import (
     CandidateEvaluation, PaperPolicy, PaperPolicyRegistry, evaluate_outcomes,
 )
-from app.services.intent_reconciliation import reconcile_intents
+from app.services.intent_reconciliation import reconcile_intents, reconcile_portfolio_intents
 from app.services.risk import RiskManager, return_correlation
 from app.services.portfolio import PortfolioLedger
 from app.services.portfolio_intelligence import analyze_portfolio
@@ -708,6 +708,52 @@ class TradingEngine:
             })
             return agent
 
+    def _portfolio_relationship_block(self, intent: TradeIntent) -> str | None:
+        """Fail closed when related-entity evidence is stale or contradicts holdings."""
+        symbols = {intent.symbol.upper()}
+        symbols.update(
+            position.symbol.upper() for position in self.positions
+            if position.exchange.upper() == intent.exchange.upper()
+        )
+        try:
+            async def load_relationships():
+                return await asyncio.gather(*(
+                    self.provider.get_company_relationships(symbol)
+                    for symbol in sorted(symbols)
+                ))
+
+            envelopes = asyncio.run(load_relationships())
+        except Exception as exc:
+            return f"relationship provider failed: {type(exc).__name__}: {exc}"
+
+        edges = []
+        for envelope in envelopes:
+            if (
+                envelope.status.value not in {"ok", "empty"}
+                or envelope.freshness_seconds > self.settings.max_market_data_freshness_seconds
+            ):
+                return (
+                    "portfolio relationship data is stale or unavailable; "
+                    f"source={envelope.source}, status={envelope.status.value}, "
+                    f"freshness_seconds={envelope.freshness_seconds}"
+                )
+            if envelope.status.value == "empty" and self.positions:
+                return (
+                    "portfolio relationship graph is incomplete while holdings are open; "
+                    f"source={envelope.source}"
+                )
+            edges.extend(envelope.payload or [])
+
+        reconciliation = reconcile_portfolio_intents(
+            [intent], edges, datetime.now(timezone.utc),
+            open_positions=self.positions,
+        )
+        if reconciliation.accepted:
+            return None
+        return "; ".join(item.reason for item in reconciliation.rejected) or (
+            "portfolio relationship reconciliation rejected the candidate"
+        )
+
     def run_cycle(self, symbol: str = "RELIANCE", exchange: str = "NSE") -> None:
         with self._lock:
             if not self._started:
@@ -1039,6 +1085,18 @@ class TradingEngine:
             if intent is not None:
                 intent.policy_version = self.policy_registry.active.version
                 intent.id = self._stable_intent_id(intent, latest["timestamp"])
+            if intent is not None:
+                relationship_block = self._portfolio_relationship_block(intent)
+                if relationship_block:
+                    self.journal.append({
+                        "type": "entry_rejected",
+                        "reason": "portfolio_relationship_validation",
+                        "symbol": intent.symbol,
+                        "intent_id": intent.id,
+                        "details": relationship_block,
+                        "at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    intent = None
             if intent is not None and not self.paused and not market_open:
                 self.journal.append({
                     "type": "entry_rejected", "reason": "market calendar is closed or unavailable",
