@@ -14,6 +14,7 @@ from app.services.learning import (
     chronological_split,
     evaluate_chronological,
     validate_strategy_parameter_proposal, evaluate_outcomes,
+    generate_strategy_parameter_candidates,
 )
 
 
@@ -198,3 +199,28 @@ def test_learning_report_does_not_mix_policy_versions():
     assert report.net_pnl == Decimal("10")
     empty = evaluate_outcomes(baseline + candidate, policy_version="paper-v3")
     assert empty.sample_count == 0
+
+
+
+def test_candidate_generator_is_deterministic_bounded_and_strategy_only():
+    current = {
+        "ema_fast": 9, "ema_slow": 21, "rsi_lower": 30,
+        "rsi_upper": 70, "atr_stop_multiple": 2, "reward_risk": 2,
+    }
+    candidates = generate_strategy_parameter_candidates(current)
+    assert candidates
+    assert candidates == generate_strategy_parameter_candidates(current)
+    for candidate in candidates:
+        changed = [key for key in current if candidate[key] != current[key]]
+        assert len(changed) == 1
+        assert set(candidate) == set(current)
+        validate_strategy_parameter_proposal(current, {changed[0]: candidate[changed[0]]})
+    assert all("max_daily_loss_pct" not in candidate for candidate in candidates)
+
+
+def test_candidate_generator_rejects_invalid_baseline_and_step():
+    current = {"ema_fast": 9, "ema_slow": 21}
+    with pytest.raises(ValueError, match="relative_step"):
+        generate_strategy_parameter_candidates(current, relative_step=0.2)
+    with pytest.raises(ValueError, match="ema_fast"):
+        generate_strategy_parameter_candidates({"ema_fast": 30, "ema_slow": 20})
