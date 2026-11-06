@@ -59,12 +59,13 @@ def test_duplicate_intent_ids_are_rejected():
 
 
 def relationship(source="ABC", target="XYZ", transmission="same", confidence=0.95,
-                 valid_until=None):
+                 valid_until=None, evidence_ids=None):
     now = datetime.now(UTC)
     return RelationshipEdge(
         source_symbol=source, target_symbol=target,
         relationship_type="documented_supply_chain",
-        transmission=transmission, evidence_ids=["filing-1"],
+        transmission=transmission,
+        evidence_ids=["filing-1"] if evidence_ids is None else evidence_ids,
         source="verified exchange filing", valid_from=now - timedelta(days=2),
         valid_until=valid_until, confidence=confidence,
     )
@@ -120,6 +121,18 @@ def test_portfolio_reconciliation_fails_closed_for_unknown_or_weak_edges():
     assert weak.accepted == []
     assert "unresolved" in unknown.rejected[0].reason
     assert "below threshold" in weak.rejected[0].reason
+
+
+def test_portfolio_reconciliation_rejects_relationships_without_evidence_ids():
+    first = make_intent(symbol="ABC", direction="long")
+    second = make_intent(symbol="XYZ", direction="long")
+    result = reconcile_portfolio_intents(
+        [first, second], [relationship(evidence_ids=[])], datetime.now(UTC),
+    )
+    assert result.accepted == []
+    assert len(result.rejected) == 2
+    assert all("relationship evidence is missing" in item.reason
+               for item in result.rejected)
 
 
 def test_portfolio_reconciliation_checks_existing_related_holdings():
