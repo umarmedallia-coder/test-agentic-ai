@@ -717,10 +717,17 @@ class TradingEngine:
         )
         try:
             async def load_relationships():
-                return await asyncio.gather(*(
-                    self.provider.get_company_relationships(symbol)
-                    for symbol in sorted(symbols)
-                ))
+                # TaskGroup cancels sibling lookups when any provider call fails;
+                # wait_for bounds each lookup so a hung adapter cannot stall a cycle.
+                async with asyncio.TaskGroup() as group:
+                    tasks = [
+                        group.create_task(asyncio.wait_for(
+                            self.provider.get_company_relationships(symbol),
+                            timeout=self.settings.agent_timeout_seconds,
+                        ))
+                        for symbol in sorted(symbols)
+                    ]
+                return [task.result() for task in tasks]
 
             envelopes = asyncio.run(load_relationships())
         except Exception as exc:
