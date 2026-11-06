@@ -761,10 +761,128 @@ class TradingEngine:
             "portfolio relationship reconciliation rejected the candidate"
         )
 
+    def _run_corporate_actions_cycle(self, symbol: str, exchange: str) -> None:
+        """Process corporate actions without making OHLCV/technical signals a prerequisite."""
+        trading_day = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        try:
+            quote = asyncio.run(asyncio.wait_for(
+                self.provider.get_stock_quote(symbol, exchange),
+                timeout=self.settings.agent_timeout_seconds,
+            ))
+            if (
+                quote.status.value == "ok" and quote.payload is not None
+                and quote.freshness_seconds <= self.settings.max_market_data_freshness_seconds
+                and quote.payload.symbol.upper() == symbol.upper()
+                and quote.payload.exchange.upper() == exchange.upper()
+            ):
+                price = float(quote.payload.price)
+                self.marks[symbol] = price
+                self.last_data_as_of = quote.as_of
+                self.last_data_freshness_seconds = quote.freshness_seconds
+                self.last_data_source = quote.source
+                self.last_data_is_mock = quote.is_mock
+                if any(position.symbol.upper() == symbol.upper() for position in self.positions):
+                    self.ledger.mark(symbol, Decimal(str(price)))
+                    self._close_triggered_positions(
+                        symbol, {"low": price, "high": price},
+                    )
+            else:
+                self.errors.append(
+                    f"{symbol}: quote unavailable or stale; position mark/exit check skipped"
+                )
+        except Exception as exc:
+            self.errors.append(
+                f"{symbol}: quote lookup failed: {type(exc).__name__}: {exc}"
+            )
+
+        try:
+            calendar = asyncio.run(asyncio.wait_for(
+                self.provider.get_trading_calendar(trading_day, exchange),
+                timeout=self.settings.agent_timeout_seconds,
+            ))
+            if (
+                calendar.status.value != "ok"
+                or calendar.freshness_seconds > self.settings.max_market_data_freshness_seconds
+            ):
+                self.errors.append(
+                    f"{symbol}: exchange calendar unavailable or stale: {calendar.status.value}"
+                )
+        except Exception as exc:
+            self.errors.append(
+                f"{symbol}: exchange calendar lookup failed: {type(exc).__name__}: {exc}"
+            )
+
+        try:
+            action_agent, blocked = asyncio.run(asyncio.wait_for(
+                run_corporate_actions_pipeline(
+                    self.provider, symbol, trading_day,
+                ),
+                timeout=self.settings.agent_timeout_seconds,
+            ))
+            blocked = blocked or self._apply_due_corporate_actions(
+                action_agent, symbol, trading_day,
+            )
+        except Exception as exc:
+            blocked = True
+            action_agent = AgentResult(
+                agent_name="Corporate Actions Agent", status=AgentStatus.FAILED,
+                symbol=symbol, exchange=exchange,
+                conclusion="Corporate-action processing failed; event effects were not assumed.",
+                errors=[f"{type(exc).__name__}: {exc}"],
+            )
+        self.agents = [
+            AgentResult(
+                agent_name="Market Intelligence Agent", status=AgentStatus.SKIPPED,
+                symbol=symbol, exchange=exchange,
+                conclusion="Market regime analysis is not required for corporate-action processing.",
+            ),
+            AgentResult(
+                agent_name="Technical Analysis Agent", status=AgentStatus.SKIPPED,
+                symbol=symbol, exchange=exchange,
+                conclusion="Technical signals are not required in corporate-actions-only mode.",
+            ),
+            AgentResult(
+                agent_name="News Intelligence Agent", status=AgentStatus.SKIPPED,
+                symbol=symbol, exchange=exchange,
+                conclusion="News analysis is not selected by this strategy mode.",
+            ),
+            AgentResult(
+                agent_name="News-to-Stock Impact Mapping Agent", status=AgentStatus.SKIPPED,
+                symbol=symbol, exchange=exchange,
+                conclusion="No news event was selected for stock-impact mapping.",
+            ),
+            action_agent,
+        ]
+        if blocked:
+            self.journal.append({
+                "type": "entry_blocked", "reason": "corporate_action",
+                "symbol": symbol, "at": datetime.now(timezone.utc).isoformat(),
+            })
+        for name in (
+            "Fundamental Analysis Agent", "Institutional Activity Agent",
+            "Stock Discovery Agent", "Strategy Agent", "Debate/Critic Agent",
+            "Risk Management Agent", "Portfolio Intelligence Agent",
+            "Recommendation Synthesis Agent",
+        ):
+            self.agents.append(AgentResult(
+                agent_name=name, status=AgentStatus.SKIPPED,
+                symbol=symbol, exchange=exchange,
+                conclusion="Not required for corporate-actions-only processing.",
+            ))
+        self.last_cycle_at = datetime.now(timezone.utc)
+        try:
+            self.equity_peak = max(self.equity_peak, self.equity)
+        except ValueError:
+            pass
+        self._persist()
+
     def run_cycle(self, symbol: str = "RELIANCE", exchange: str = "NSE") -> None:
         with self._lock:
             if not self._started:
                 raise RuntimeError("Engine is not running")
+            if self.settings.strategy_mode == "corporate_actions":
+                self._run_corporate_actions_cycle(symbol, exchange)
+                return
             now = datetime.now(timezone.utc)
             history = asyncio.run(self.provider.get_historical_prices(
                 symbol, now - timedelta(days=80), now, exchange,
