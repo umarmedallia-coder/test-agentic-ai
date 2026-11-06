@@ -87,6 +87,12 @@ def test_engine_restores_open_positions_after_restart(tmp_path, monkeypatch):
     first.start()
     first.run_cycle()
     assert len(first.positions) == 1
+    risk_agent = next(
+        item for item in first.agents if item.agent_name == "Risk Management Agent"
+    )
+    assert risk_agent.findings["risk_amount"] == pytest.approx(
+        first.positions[0].quantity * (first.positions[0].entry_price - 90),
+    )
     saved_cash = first.cash
     first.stop()
 
