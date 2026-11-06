@@ -108,6 +108,14 @@ def reconcile_portfolio_intents(
         ]
         if not relevant:
             return None
+        # A relationship assertion without traceable supporting evidence is
+        # not admissible for portfolio-level directional decisions.
+        if any(
+            not edge.evidence_ids
+            or any(not evidence_id.strip() for evidence_id in edge.evidence_ids)
+            for edge in relevant
+        ):
+            return "related-entity exposure blocked: relationship evidence is missing"
         signatures = {
             (edge.transmission, edge.relationship_type, edge.source)
             for edge in relevant
