@@ -19,6 +19,22 @@ class PaperBroker:
         self.config = config or PaperExecutionConfig()
         self._fills: dict[str, PaperFill] = {}
 
+    def preview_price(self, direction: str, reference_price: Decimal) -> Decimal:
+        """Return the deterministic adverse execution price used by paper fills."""
+        if reference_price <= 0:
+            raise ValueError("reference price must be positive")
+        normalized = direction.lower()
+        if normalized not in {"long", "buy", "short", "sell"}:
+            raise ValueError("direction must be long/buy or short/sell")
+        adverse = Decimal("1") + self.config.slippage_bps / Decimal("10000")
+        if normalized in {"short", "sell"}:
+            adverse = Decimal("1") - self.config.slippage_bps / Decimal("10000")
+        if adverse <= 0:
+            raise ValueError("configured slippage produces a non-positive execution price")
+        return (reference_price * adverse).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN,
+        )
+
     def execute(self, signal: Signal, quantity: int, reference_price: Decimal) -> PaperFill:
         if quantity <= 0 or reference_price <= 0:
             raise ValueError("quantity and reference price must be positive")
@@ -27,10 +43,7 @@ class PaperBroker:
         key = signal.signal_id
         if key in self._fills:
             return self._fills[key]
-        adverse = Decimal("1") + self.config.slippage_bps/Decimal("10000")
-        if signal.direction.lower() in {"short", "sell"}:
-            adverse = Decimal("1") - self.config.slippage_bps/Decimal("10000")
-        price = (reference_price*adverse).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        price = self.preview_price(signal.direction, reference_price)
         notional = price*quantity
         direction = signal.direction.lower()
         fill_side = (
