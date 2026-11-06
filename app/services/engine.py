@@ -1213,8 +1213,14 @@ class TradingEngine:
                                     accepted=False, reasons=[correlation_error],
                                 )
                             else:
+                                expected_fill_price = self.broker.preview_price(
+                                    intent.direction, Decimal(str(intent.entry_price)),
+                                )
+                                execution_intent = intent.model_copy(update={
+                                    "entry_price": float(expected_fill_price),
+                                })
                                 decision = self.risk.validate(
-                                    intent, current_equity, current_daily_pnl,
+                                    execution_intent, current_equity, current_daily_pnl,
                                     len(self.positions), float(self.ledger.available_cash),
                                     correlated_exposure=correlated_exposure,
                                     equity_peak=self.equity_peak,
