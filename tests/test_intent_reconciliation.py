@@ -1,5 +1,11 @@
-from app.models import TradeIntent
-from app.services.intent_reconciliation import reconcile_intents
+from datetime import UTC, datetime, timedelta
+
+from app.contracts import RelationshipEdge
+from app.models import Position, TradeIntent
+from app.services.intent_reconciliation import (
+    reconcile_intents,
+    reconcile_portfolio_intents,
+)
 
 
 def make_intent(
@@ -50,12 +56,6 @@ def test_duplicate_intent_ids_are_rejected():
     assert len(result.accepted) == 1
     assert result.rejected[0].reason == "duplicate intent id"
 
-
-from datetime import UTC, datetime, timedelta
-
-from app.contracts import RelationshipEdge
-from app.models import Position
-from app.services.intent_reconciliation import reconcile_portfolio_intents
 
 
 def relationship(source="ABC", target="XYZ", transmission="same", confidence=0.95,
