@@ -147,6 +147,42 @@ _ALLOWED_STRATEGY_PARAMETERS: dict[str, tuple[float, float]] = {
 }
 
 
+def generate_strategy_parameter_candidates(
+    current: dict[str, float],
+    *,
+    relative_step: float = 0.05,
+) -> list[dict[str, float]]:
+    """Generate deterministic one-parameter-at-a-time paper candidates.
+
+    This is a bounded proposal generator, not an optimizer. Every proposal
+    changes one strategy parameter only; hard risk controls are not represented
+    in the supported parameter set and cannot be modified by this function.
+    """
+    if not 0 < relative_step <= 0.1:
+        raise ValueError("relative_step must be in (0, 0.1]")
+    # Validate the baseline before deriving any proposals.
+    PaperPolicy(version="proposal-baseline", parameters=current)
+    candidates: list[dict[str, float]] = []
+    seen: set[tuple[tuple[str, float], ...]] = set()
+    for name in sorted(current):
+        baseline = current[name]
+        for multiplier in (1 - relative_step, 1 + relative_step):
+            proposed_value = round(baseline * multiplier, 6)
+            try:
+                proposal = validate_strategy_parameter_proposal(
+                    current, {name: proposed_value},
+                    max_relative_change=relative_step,
+                )
+                PaperPolicy(version="proposal-candidate", parameters=proposal)
+            except ValueError:
+                continue
+            signature = tuple(sorted(proposal.items()))
+            if signature not in seen and proposal != current:
+                seen.add(signature)
+                candidates.append(proposal)
+    return candidates
+
+
 def evaluate_outcomes(outcomes: list[TradeOutcome], policy_version: str) -> LearningReport:
     tagged_outcomes = [outcome for outcome in outcomes if outcome.policy_version is not None]
     if tagged_outcomes:
