@@ -269,3 +269,32 @@ def test_portfolio_ledger_realizes_exit_after_entry_and_costs_once():
     assert ledger.cash == Decimal("10098")
     assert ledger.positions == {}
     assert ledger.apply_sell(exit_fill) == Decimal("0")
+
+
+
+def test_paper_broker_preview_matches_adverse_fill_price_for_both_directions():
+    broker = PaperBroker(PaperExecutionConfig(
+        fee_rate=Decimal("0"), slippage_bps=Decimal("25"),
+    ))
+    long_signal = Signal(
+        strategy="test", symbol="ABC", direction="long",
+        entry=Decimal("100"), stop=Decimal("95"), target=Decimal("110"),
+        confidence=0.8, rationale="long",
+    )
+    short_signal = Signal(
+        strategy="test", symbol="XYZ", direction="short",
+        entry=Decimal("100"), stop=Decimal("105"), target=Decimal("90"),
+        confidence=0.8, rationale="short",
+    )
+    long_price = broker.preview_price("long", Decimal("100"))
+    short_price = broker.preview_price("short", Decimal("100"))
+    assert long_price == Decimal("100.25")
+    assert short_price == Decimal("99.75")
+    assert broker.execute(long_signal, 1, Decimal("100")).price == long_price
+    assert broker.execute(short_signal, 1, Decimal("100")).price == short_price
+
+
+def test_paper_broker_rejects_non_positive_short_preview_price():
+    broker = PaperBroker(PaperExecutionConfig(slippage_bps=Decimal("10001")))
+    with pytest.raises(ValueError, match="non-positive"):
+        broker.preview_price("short", Decimal("100"))
